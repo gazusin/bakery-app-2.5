@@ -1,5 +1,3 @@
-
-
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -7,8 +5,9 @@ import { PageHeader } from '@/components/page-header';
 import { AdvancedReportCards } from './AdvancedReportCards';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { FileText, Download, CalendarDays, Package, Calendar as CalendarIcon, DollarSign, Archive, Layers, BarChart2 as BarChartIconLucide, PieChart as PieChartIconLucide, Loader2, Shuffle, TrendingDown, Combine, Building, Eye, TrendingUp as TrendingUpIcon } from 'lucide-react';
+import { FileText, Download, CalendarDays, Package, Calendar as CalendarIcon, DollarSign, Archive, Layers, BarChart2 as BarChartIconLucide, PieChart as PieChartIconLucide, Loader2, Shuffle, TrendingDown, Combine, Building, Eye, TrendingUp as TrendingUpIcon, FileSpreadsheet } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
+import { exportToExcel, exportMultipleSheetsToExcel } from '@/lib/export-utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter as UiDialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from "@/components/ui/calendar";
@@ -34,6 +33,7 @@ import {
   type RawMaterialInventoryItem,
   type Recipe,
   calculateDynamicRecipeCost,
+  getHighestPriceInfo,
   type Employee,
   loadExpenseFixedCategories,
   type ExpenseFixedCategory,
@@ -47,10 +47,12 @@ import {
   weeklyLossReportsData as initialWeeklyLossReportsData,
   type WeeklyLossReport,
   weeklyProfitReportsData as initialWeeklyProfitReportsData,
-  type WeeklyProfitReport
+  type WeeklyProfitReport,
+  type ProductionLogEntry
 } from '@/lib/data-storage';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 import {
   Bar,
   BarChart,
@@ -78,6 +80,10 @@ import { FormattedNumber } from '@/components/ui/formatted-number';
 
 interface jsPDFWithAutoTable extends jsPDF {
   autoTable: (options: any) => jsPDFWithAutoTable;
+  lastAutoTable: { finalY: number };
+  setFontSize: (size: number) => jsPDF;
+  text: (text: string | string[], x: number, y: number, options?: any) => jsPDF;
+  save: (filename: string) => any;
 }
 
 interface ProductSalesQuantityData { name: string; quantity: number; }
@@ -563,7 +569,7 @@ export default function ReportsPage() {
   } satisfies ChartConfig;
 
 
-  const handleDownloadSalesReport = () => {
+  const handleDownloadSalesReport = async () => {
     let filteredSales = initialSalesDataGlobal;
     let reportPeriod = "General";
 
@@ -582,39 +588,90 @@ export default function ReportsPage() {
       return;
     }
 
-    const doc = new jsPDF() as jsPDFWithAutoTable;
-    doc.setFontSize(18);
-    doc.text("Panificadora Valladares", 14, 22);
-    doc.setFontSize(12);
-    doc.text("Reporte de Ventas (Global)", 14, 30);
-    doc.setFontSize(10);
-    doc.text(`Período: ${reportPeriod}`, 14, 38);
-    doc.text(`Tasa de Cambio (USD/VES): ${exchangeRate > 0 ? exchangeRate.toFixed(2) : 'No establecida'}`, 14, 44);
+    try {
+      // Capture the chart
+      const chartElement = document.getElementById('sales-chart');
+      const doc = new jsPDF() as unknown as unknown as jsPDFWithAutoTable;
 
-    const head = [["ID Venta", "Fecha", "Cliente", "Total (USD)", "Total (VES)", "Método Pago", "Estado"]];
-    const body = filteredSales.map(sale => [
-      sale.id,
-      format(parseISO(sale.date), "dd/MM/yyyy", { locale: es }),
-      sale.customerName || 'N/A',
-      `$${sale.totalAmount.toFixed(2)}`,
-      formatVesPrice(sale.totalAmount),
-      sale.paymentMethod,
-      sale.status
-    ]);
+      doc.setFontSize(18);
+      doc.text("Panificadora Valladares", 14, 22);
+      doc.setFontSize(12);
+      doc.text("Reporte de Ventas (Global)", 14, 30);
+      doc.setFontSize(10);
+      doc.text(`Período: ${reportPeriod}`, 14, 38);
+      doc.text(`Tasa de Cambio (USD/VES): ${exchangeRate > 0 ? exchangeRate.toFixed(2) : 'No establecida'}`, 14, 44);
 
-    doc.autoTable({
-      startY: 52, head: head, body: body, theme: 'striped', headStyles: { fillColor: [224, 122, 95], fontSize: 10 }, bodyStyles: { fontSize: 9 },
-    });
+      let startY = 52;
 
-    doc.save(getReportFilename("reporte_ventas_global"));
-    toast({
-      title: "Reporte de Ventas Generado",
-      description: `Se generó un PDF con ${filteredSales.length} registros de ventas.`,
-      duration: 5000,
-    });
+      // Add chart if element exists
+      if (chartElement && productSalesQuantityChartData.length > 0) {
+        const canvas = await html2canvas(chartElement, { scale: 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const imgWidth = 180;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        doc.addImage(imgData, 'PNG', 15, startY, imgWidth, imgHeight);
+        startY = startY + imgHeight + 10;
+      }
+
+      // Add table
+      const head = [["ID Venta", "Fecha", "Cliente", "Total (USD)", "Total (VES)", "Método Pago", "Estado"]];
+      const body = filteredSales.map(sale => [
+        sale.id,
+        format(parseISO(sale.date), "dd/MM/yyyy", { locale: es }),
+        sale.customerName || 'N/A',
+        `$${sale.totalAmount.toFixed(2)}`,
+        formatVesPrice(sale.totalAmount),
+        sale.paymentMethod,
+        sale.status
+      ]);
+
+      doc.autoTable({
+        startY: startY, head: head, body: body, theme: 'striped', headStyles: { fillColor: [224, 122, 95], fontSize: 10 }, bodyStyles: { fontSize: 9 },
+      });
+
+      doc.save(getReportFilename("reporte_ventas_global"));
+      toast({
+        title: "Reporte de Ventas Generado",
+        description: `Se generó un PDF con ${filteredSales.length} registros de ventas.`,
+        duration: 5000,
+      });
+    } catch (error) {
+      console.error("Error generating Sales PDF:", error);
+      toast({ title: "Error", description: "No se pudo generar el PDF.", variant: "destructive" });
+    }
   };
 
-  const handleDownloadProductChangesReport = () => {
+  const handleDownloadSalesReportExcel = () => {
+    let filteredSales = initialSalesDataGlobal;
+    if (selectedDateRange?.from) {
+      const from = startOfDay(selectedDateRange.from);
+      const to = selectedDateRange.to ? endOfDay(selectedDateRange.to) : endOfDay(selectedDateRange.from);
+      filteredSales = initialSalesDataGlobal.filter(sale => {
+        const saleDate = parseISO(sale.date);
+        return isValid(saleDate) && isWithinInterval(saleDate, { start: from, end: to });
+      });
+    }
+
+    if (filteredSales.length === 0) {
+      toast({ title: "Sin Datos", description: "No hay ventas para el período seleccionado.", variant: "default" });
+      return;
+    }
+
+    const dataToExport = filteredSales.map(sale => ({
+      "ID Venta": sale.id,
+      "Fecha": format(parseISO(sale.date), "dd/MM/yyyy", { locale: es }),
+      "Cliente": sale.customerName || 'N/A',
+      "Total (USD)": sale.totalAmount,
+      "Total (VES)": sale.totalAmount * exchangeRate,
+      "Método Pago": sale.paymentMethod,
+      "Estado": sale.status
+    }));
+
+    exportToExcel(dataToExport, getReportFilename("reporte_ventas_global"));
+    toast({ title: "Reporte Excel Generado", description: "Se ha descargado el reporte de ventas en Excel." });
+  };
+
+  const handleDownloadProductChangesReport = async () => {
     let filteredSales = initialSalesDataGlobal;
     let reportPeriod = "General";
 
@@ -661,40 +718,139 @@ export default function ReportsPage() {
       return;
     }
 
-    const doc = new jsPDF() as jsPDFWithAutoTable;
-    doc.setFontSize(18);
-    doc.text("Panificadora Valladares", 14, 22);
-    doc.setFontSize(12);
-    doc.text("Reporte de Cambios/Devoluciones de Productos (Global)", 14, 30);
-    doc.setFontSize(10);
-    doc.text(`Período: ${reportPeriod}`, 14, 38);
-    doc.text(`Tasa de Cambio (USD/VES): ${exchangeRate > 0 ? exchangeRate.toFixed(2) : 'No establecida'}`, 14, 44);
-    doc.text(`Nota: El costo se basa en el costo de "No despachable" (recetas sede: ${activeBranchName}).`, 14, 50);
+    try {
+      const chartElement = document.getElementById('product-changes-chart');
+      const doc = new jsPDF() as unknown as unknown as jsPDFWithAutoTable;
 
-    const head = [["Producto", "Cantidad Cambiada/Devuelta", "Costo Total Cambio (USD)", "Costo Total Cambio (VES)"]];
-    const body = productChangesList.map(item => [
-      item.name,
-      item.quantity,
-      `$${item.costUSD.toFixed(2)}`,
-      formatVesPrice(item.costUSD)
-    ]);
-    const totalQuantity = productChangesList.reduce((sum, item) => sum + item.quantity, 0);
-    const totalCost = productChangesList.reduce((sum, item) => sum + item.costUSD, 0);
-    body.push([
-      { content: "TOTALES", styles: { fontStyle: 'bold', halign: 'right' } },
-      { content: totalQuantity, styles: { fontStyle: 'bold' } },
-      { content: `$${totalCost.toFixed(2)}`, styles: { fontStyle: 'bold' } },
-      { content: formatVesPrice(totalCost), styles: { fontStyle: 'bold' } },
-    ]);
+      doc.setFontSize(18);
+      doc.text("Panificadora Valladares", 14, 22);
+      doc.setFontSize(12);
+      doc.text("Reporte de Cambios/Devoluciones de Productos (Global)", 14, 30);
+      doc.setFontSize(10);
+      doc.text(`Período: ${reportPeriod}`, 14, 38);
+      doc.text(`Tasa de Cambio (USD/VES): ${exchangeRate > 0 ? exchangeRate.toFixed(2) : 'No establecida'}`, 14, 44);
+      doc.text(`Nota: El costo se basa en el costo de "No despachable" (recetas sede: ${activeBranchName}).`, 14, 50);
 
-    doc.autoTable({
-      startY: 58, head: head, body: body, theme: 'striped', headStyles: { fillColor: [224, 122, 95], fontSize: 10 }, bodyStyles: { fontSize: 9 },
-    });
-    doc.save(getReportFilename("reporte_cambios_productos_global"));
-    toast({ title: "Reporte de Cambios Generado", description: `Se generó un PDF con ${productChangesList.length} productos cambiados/devueltos.`, duration: 5000, });
+      let startY = 58;
+
+      // Add chart if element exists
+      if (chartElement && productChangesChartData.length > 0) {
+        const canvas = await html2canvas(chartElement, { scale: 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const imgWidth = 180;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        doc.addImage(imgData, 'PNG', 15, startY, imgWidth, imgHeight);
+        startY = startY + imgHeight + 10;
+      }
+
+      const head = [["Producto", "Cantidad Cambiada/Devuelta", "Costo Total Cambio (USD)", "Costo Total Cambio (VES)"]];
+      const body: any[] = productChangesList.map(item => [
+        item.name,
+        item.quantity,
+        `$${item.costUSD.toFixed(2)}`,
+        formatVesPrice(item.costUSD)
+      ]);
+      const totalQuantity = productChangesList.reduce((sum, item) => sum + item.quantity, 0);
+      const totalCost = productChangesList.reduce((sum, item) => sum + item.costUSD, 0);
+      body.push([
+        { content: "TOTALES", styles: { fontStyle: 'bold', halign: 'right' } },
+        { content: totalQuantity, styles: { fontStyle: 'bold' } },
+        { content: `$${totalCost.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+        { content: formatVesPrice(totalCost), styles: { fontStyle: 'bold' } },
+      ]);
+
+      doc.autoTable({
+        startY: startY, head: head, body: body, theme: 'striped', headStyles: { fillColor: [224, 122, 95], fontSize: 10 }, bodyStyles: { fontSize: 9 },
+      });
+
+      doc.save(getReportFilename("reporte_cambios_productos_global"));
+      toast({ title: "Reporte de Cambios Generado", description: `Se generó un PDF con ${productChangesList.length} productos cambiados/devueltos.`, duration: 5000, });
+    } catch (error) {
+      console.error("Error generating Product Changes PDF:", error);
+      toast({ title: "Error", description: "No se pudo generar el PDF.", variant: "destructive" });
+    }
   };
 
-  const handleDownloadExpenseReport = () => {
+  const handleDownloadProductChangesReportExcel = () => {
+    let filteredSales = initialSalesDataGlobal;
+    if (selectedDateRange?.from) {
+      const from = startOfDay(selectedDateRange.from);
+      const to = selectedDateRange.to ? endOfDay(selectedDateRange.to) : endOfDay(selectedDateRange.from);
+      filteredSales = initialSalesDataGlobal.filter(sale => {
+        const saleDate = parseISO(sale.date);
+        return isValid(saleDate) && isWithinInterval(saleDate, { start: from, end: to });
+      });
+    }
+
+    const productChangesAggregated: { name: string; quantity: number; costUSD: number }[] = [];
+    const productChangesMap: { [productName: string]: { quantity: number; costUSD: number } } = {};
+    const activeBranchRecipes = activeBranchIdState ? loadFromLocalStorageForBranch<Recipe[]>(KEYS.RECIPES, activeBranchIdState) : [];
+
+    filteredSales.forEach(sale => {
+      if (sale.changes) {
+        sale.changes.forEach(item => {
+          if (item.productName) {
+            if (!productChangesMap[item.productName]) {
+              productChangesMap[item.productName] = { quantity: 0, costUSD: 0 };
+            }
+            productChangesMap[item.productName].quantity += item.quantity;
+            const recipe = activeBranchRecipes.find(r => r.name === item.productName);
+            if (recipe && recipe.name.toLowerCase().startsWith('no despachable')) {
+              const lossCostPerUnit = recipe.costPerUnit || 0;
+              productChangesMap[item.productName].costUSD += item.quantity * lossCostPerUnit;
+            }
+          }
+        });
+      }
+    });
+
+    for (const name in productChangesMap) {
+      productChangesAggregated.push({ name, quantity: productChangesMap[name].quantity, costUSD: productChangesMap[name].costUSD });
+    }
+    const productChangesList = productChangesAggregated.sort((a, b) => b.costUSD - a.costUSD);
+
+    if (productChangesList.length === 0) {
+      toast({ title: "Sin Datos", description: "No hay cambios/devoluciones de productos para el período seleccionado.", variant: "default" });
+      return;
+    }
+
+    const dataToExport = productChangesList.map(item => ({
+      "Producto": item.name,
+      "Cantidad Cambiada/Devuelta": item.quantity,
+      "Costo Total Cambio (USD)": item.costUSD,
+      "Costo Total Cambio (VES)": item.costUSD * exchangeRate
+    }));
+
+    exportToExcel(dataToExport, getReportFilename("reporte_cambios_productos_global"));
+    toast({ title: "Reporte Excel Generado", description: "Se ha descargado el reporte de cambios en Excel." });
+  };
+
+  const handleDownloadInventoryReportExcel = () => {
+    if (!activeBranchIdState) {
+      toast({ title: "Error de Sede", description: "Selecciona una sede activa primero.", variant: "destructive" });
+      return;
+    }
+    const productsForReport = loadFromLocalStorageForBranch<Product[]>(KEYS.PRODUCTS, activeBranchIdState);
+    if (productsForReport.length === 0) {
+      toast({ title: "Sin Datos", description: `No hay productos en el stock de producción de la sede ${activeBranchName}.`, variant: "default" });
+      return;
+    }
+
+    const dataToExport = productsForReport.map(product => ({
+      "ID Producto": product.id,
+      "Nombre": product.name,
+      "Categoría": product.category,
+      "Stock": product.stock,
+      "P.Unit (USD)": product.unitPrice,
+      "P.Unit (VES)": product.unitPrice * exchangeRate,
+      "Últ. Actualización": product.lastUpdated ? format(parseISO(product.lastUpdated), "dd/MM/yyyy", { locale: es }) : '-'
+    }));
+
+    exportToExcel(dataToExport, getReportFilename("reporte_stock_produccion"));
+    toast({ title: "Reporte Excel Generado", description: "Se ha descargado el reporte de stock en Excel." });
+  };
+
+  const handleDownloadExpenseReport = async () => {
     if (!activeBranchIdState) {
       toast({ title: "Error de Sede", description: "Selecciona una sede activa primero.", variant: "destructive" });
       return;
@@ -718,31 +874,87 @@ export default function ReportsPage() {
       return;
     }
 
-    const doc = new jsPDF() as jsPDFWithAutoTable;
-    doc.setFontSize(18);
-    doc.text("Panificadora Valladares", 14, 22);
-    doc.setFontSize(12);
-    doc.text(`Reporte de Gastos (Sede: ${activeBranchName})`, 14, 30);
-    doc.setFontSize(10);
-    doc.text(`Período: ${reportPeriod}`, 14, 38);
-    doc.text(`Tasa de Cambio (USD/VES): ${exchangeRate > 0 ? exchangeRate.toFixed(2) : 'No establecida'}`, 14, 44);
+    try {
+      const chartElement = document.getElementById('expenses-chart');
+      const doc = new jsPDF() as unknown as unknown as jsPDFWithAutoTable;
 
-    const head = [["ID Gasto", "Fecha", "Categoría", "Descripción", "Monto (USD)", "Monto (VES)", "Pagado A"]];
-    const body = filteredExpenses.map(expense => [
-      expense.id,
-      format(parseISO(expense.date), "dd/MM/yyyy", { locale: es }),
-      expense.category,
-      expense.description,
-      `$${expense.amount.toFixed(2)}`,
-      formatVesPrice(expense.amount),
-      expense.paidTo
-    ]);
+      doc.setFontSize(18);
+      doc.text("Panificadora Valladares", 14, 22);
+      doc.setFontSize(12);
+      doc.text(`Reporte de Gastos (Sede: ${activeBranchName})`, 14, 30);
+      doc.setFontSize(10);
+      doc.text(`Período: ${reportPeriod}`, 14, 38);
+      doc.text(`Tasa de Cambio (USD/VES): ${exchangeRate > 0 ? exchangeRate.toFixed(2) : 'No establecida'}`, 14, 44);
 
-    doc.autoTable({
-      startY: 52, head: head, body: body, theme: 'striped', headStyles: { fillColor: [224, 122, 95], fontSize: 10 }, bodyStyles: { fontSize: 9 },
-    });
-    doc.save(getReportFilename("reporte_gastos"));
-    toast({ title: "Reporte de Gastos Generado", description: `Se generó un PDF con ${filteredExpenses.length} registros de gastos de la sede ${activeBranchName}.`, duration: 5000, });
+      let startY = 52;
+
+      // Add chart if element exists
+      if (chartElement && expensesChartData.length > 0) {
+        const canvas = await html2canvas(chartElement, { scale: 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const imgWidth = 180;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        doc.addImage(imgData, 'PNG', 15, startY, imgWidth, imgHeight);
+        startY = startY + imgHeight + 10;
+      }
+
+      const head = [["ID Gasto", "Fecha", "Categoría", "Descripción", "Monto (USD)", "Monto (VES)", "Pagado A"]];
+      const body = filteredExpenses.map(expense => [
+        expense.id,
+        format(parseISO(expense.date), "dd/MM/yyyy", { locale: es }),
+        expense.category,
+        expense.description,
+        `$${expense.amount.toFixed(2)}`,
+        formatVesPrice(expense.amount),
+        expense.paidTo
+      ]);
+
+      doc.autoTable({
+        startY: startY, head: head, body: body, theme: 'striped', headStyles: { fillColor: [224, 122, 95], fontSize: 10 }, bodyStyles: { fontSize: 9 },
+      });
+
+      doc.save(getReportFilename("reporte_gastos"));
+      toast({ title: "Reporte de Gastos Generado", description: `Se generó un PDF con ${filteredExpenses.length} registros de gastos de la sede ${activeBranchName}.`, duration: 5000, });
+    } catch (error) {
+      console.error("Error generating Expenses PDF:", error);
+      toast({ title: "Error", description: "No se pudo generar el PDF.", variant: "destructive" });
+    }
+  };
+
+  const handleDownloadExpenseReportExcel = () => {
+    if (!activeBranchIdState) {
+      toast({ title: "Error de Sede", description: "Selecciona una sede activa primero.", variant: "destructive" });
+      return;
+    }
+    let branchExpenses = loadFromLocalStorageForBranch<Expense[]>(KEYS.EXPENSES, activeBranchIdState);
+    let filteredExpenses = branchExpenses;
+
+    if (selectedDateRange?.from) {
+      const from = startOfDay(selectedDateRange.from);
+      const to = selectedDateRange.to ? endOfDay(selectedDateRange.to) : endOfDay(selectedDateRange.from);
+      filteredExpenses = branchExpenses.filter(expense => {
+        const expenseDate = parseISO(expense.date);
+        return isValid(expenseDate) && isWithinInterval(expenseDate, { start: from, end: to });
+      });
+    }
+
+    if (filteredExpenses.length === 0) {
+      toast({ title: "Sin Datos", description: `No hay gastos para el período y sede ${activeBranchName}.`, variant: "default" });
+      return;
+    }
+
+    const dataToExport = filteredExpenses.map(expense => ({
+      "ID Gasto": expense.id,
+      "Fecha": format(parseISO(expense.date), "dd/MM/yyyy", { locale: es }),
+      "Categoría": expense.category,
+      "Descripción": expense.description,
+      "Monto (USD)": expense.amount,
+      "Monto (VES)": expense.amount * exchangeRate,
+      "Pagado A": expense.paidTo
+    }));
+
+    exportToExcel(dataToExport, getReportFilename("reporte_gastos"));
+    toast({ title: "Reporte Excel Generado", description: "Se ha descargado el reporte de gastos en Excel." });
   };
 
   const handleDownloadInventoryReport = () => {
@@ -755,7 +967,7 @@ export default function ReportsPage() {
       toast({ title: "Sin Datos", description: `No hay productos en el stock de producción de la sede ${activeBranchName}.`, variant: "default" });
       return;
     }
-    const doc = new jsPDF() as jsPDFWithAutoTable;
+    const doc = new jsPDF() as unknown as unknown as jsPDFWithAutoTable;
     doc.setFontSize(18);
     doc.text("Panificadora Valladares", 14, 22);
     doc.setFontSize(12);
@@ -788,7 +1000,7 @@ export default function ReportsPage() {
       toast({ title: "Sin Datos", description: `No hay materia prima en el inventario de la sede ${activeBranchName}.`, variant: "default" });
       return;
     }
-    const doc = new jsPDF() as jsPDFWithAutoTable;
+    const doc = new jsPDF() as unknown as unknown as jsPDFWithAutoTable;
     doc.setFontSize(18);
     doc.text("Panificadora Valladares", 14, 22);
     doc.setFontSize(12);
@@ -806,6 +1018,27 @@ export default function ReportsPage() {
     });
     doc.save(getReportFilename("reporte_materia_prima"));
     toast({ title: "Reporte de Materia Prima Generado", description: `Se generó un PDF con ${rawMaterialsForReport.length} ítems de la sede ${activeBranchName}.`, duration: 5000, });
+  };
+
+  const handleDownloadRawMaterialInventoryReportExcel = () => {
+    if (!activeBranchIdState) {
+      toast({ title: "Error de Sede", description: "Selecciona una sede activa primero.", variant: "destructive" });
+      return;
+    }
+    const rawMaterialsForReport = loadFromLocalStorageForBranch<RawMaterialInventoryItem[]>(KEYS.RAW_MATERIAL_INVENTORY, activeBranchIdState);
+    if (rawMaterialsForReport.length === 0) {
+      toast({ title: "Sin Datos", description: `No hay materia prima en el inventario de la sede ${activeBranchName}.`, variant: "default" });
+      return;
+    }
+
+    const dataToExport = rawMaterialsForReport.map(item => ({
+      "Ingrediente": item.name,
+      "Cantidad Total": item.quantity,
+      "Unidad (Base)": item.unit
+    }));
+
+    exportToExcel(dataToExport, getReportFilename("reporte_inventario_materia_prima"));
+    toast({ title: "Reporte Excel Generado", description: "Se ha descargado el reporte de materia prima en Excel." });
   };
 
   const handleDownloadPurchaseOrdersReport = () => {
@@ -832,7 +1065,7 @@ export default function ReportsPage() {
       return;
     }
 
-    const doc = new jsPDF("landscape") as jsPDFWithAutoTable;
+    const doc = new jsPDF("landscape") as unknown as jsPDFWithAutoTable;
     doc.setFontSize(18);
     doc.text("Panificadora Valladares", 14, 20);
     doc.setFontSize(12);
@@ -857,6 +1090,145 @@ export default function ReportsPage() {
     toast({ title: "Reporte de Órdenes de Compra Generado", description: `Se generó un PDF con ${filteredOrders.length} órdenes de la sede ${activeBranchName}.`, duration: 5000, });
   };
 
+  const handleDownloadPurchaseOrdersReportExcel = () => {
+    if (!activeBranchIdState) {
+      toast({ title: "Error de Sede", description: "Selecciona una sede activa primero.", variant: "destructive" });
+      return;
+    }
+    let branchPurchaseOrders = loadFromLocalStorageForBranch<PurchaseOrder[]>(KEYS.PURCHASE_ORDERS, activeBranchIdState);
+    let filteredOrders = branchPurchaseOrders.filter(po => po.status === 'Pagado');
+
+    if (selectedDateRange?.from) {
+      const from = startOfDay(selectedDateRange.from);
+      const to = selectedDateRange.to ? endOfDay(selectedDateRange.to) : endOfDay(selectedDateRange.from);
+      filteredOrders = filteredOrders.filter(po => {
+        const poDate = parseISO(po.orderDate);
+        return isValid(poDate) && isWithinInterval(poDate, { start: from, end: to });
+      });
+    }
+
+    if (filteredOrders.length === 0) {
+      toast({ title: "Sin Datos", description: `No hay órdenes de compra pagadas para el período y sede ${activeBranchName}.`, variant: "default" });
+      return;
+    }
+
+    const dataToExport = filteredOrders.map(po => ({
+      "ID Orden": po.id,
+      "Fecha": format(parseISO(po.orderDate), "dd/MM/yyyy", { locale: es }),
+      "Proveedor": po.supplierName,
+      "Total (USD)": po.totalCost,
+      "Total (VES)": po.totalCost * exchangeRate,
+      "Items": po.items.map(item => `${item.rawMaterialName} (${item.quantity} ${item.unit})`).join(', ')
+    }));
+
+    exportToExcel(dataToExport, getReportFilename("reporte_ordenes_compra"));
+    toast({ title: "Reporte Excel Generado", description: "Se ha descargado el reporte de órdenes de compra en Excel." });
+  };
+
+  const handleDownloadFullReportExcel = () => {
+    if (!activeBranchIdState) {
+      toast({ title: "Error de Sede", description: "Selecciona una sede activa primero.", variant: "destructive" });
+      return;
+    }
+
+    // 1. Sales (Global)
+    let filteredSales = initialSalesDataGlobal;
+    if (selectedDateRange?.from) {
+      const from = startOfDay(selectedDateRange.from);
+      const to = selectedDateRange.to ? endOfDay(selectedDateRange.to) : endOfDay(selectedDateRange.from);
+      filteredSales = initialSalesDataGlobal.filter(sale => {
+        const saleDate = parseISO(sale.date);
+        return isValid(saleDate) && isWithinInterval(saleDate, { start: from, end: to });
+      });
+    }
+    const salesData = filteredSales.map(sale => ({
+      "ID Venta": sale.id,
+      "Fecha": format(parseISO(sale.date), "dd/MM/yyyy", { locale: es }),
+      "Cliente": sale.customerName || 'N/A',
+      "Total (USD)": sale.totalAmount,
+      "Total (VES)": sale.totalAmount * exchangeRate,
+      "Método Pago": sale.paymentMethod,
+      "Estado": sale.status
+    }));
+
+    // 2. Expenses (Branch)
+    let branchExpenses = loadFromLocalStorageForBranch<Expense[]>(KEYS.EXPENSES, activeBranchIdState);
+    let filteredExpenses = branchExpenses;
+    if (selectedDateRange?.from) {
+      const from = startOfDay(selectedDateRange.from);
+      const to = selectedDateRange.to ? endOfDay(selectedDateRange.to) : endOfDay(selectedDateRange.from);
+      filteredExpenses = branchExpenses.filter(expense => {
+        const expenseDate = parseISO(expense.date);
+        return isValid(expenseDate) && isWithinInterval(expenseDate, { start: from, end: to });
+      });
+    }
+    const expensesData = filteredExpenses.map(expense => ({
+      "ID Gasto": expense.id,
+      "Fecha": format(parseISO(expense.date), "dd/MM/yyyy", { locale: es }),
+      "Categoría": expense.category,
+      "Descripción": expense.description,
+      "Monto (USD)": expense.amount,
+      "Monto (VES)": expense.amount * exchangeRate,
+      "Pagado A": expense.paidTo
+    }));
+
+    // 3. Inventory (Branch)
+    const productsForReport = loadFromLocalStorageForBranch<Product[]>(KEYS.PRODUCTS, activeBranchIdState);
+    const inventoryData = productsForReport.map(product => ({
+      "ID Producto": product.id,
+      "Nombre": product.name,
+      "Categoría": product.category,
+      "Stock": product.stock,
+      "P.Unit (USD)": product.unitPrice,
+      "P.Unit (VES)": product.unitPrice * exchangeRate,
+      "Últ. Actualización": product.lastUpdated ? format(parseISO(product.lastUpdated), "dd/MM/yyyy", { locale: es }) : '-'
+    }));
+
+    // 4. Raw Material (Branch)
+    const rawMaterialsForReport = loadFromLocalStorageForBranch<RawMaterialInventoryItem[]>(KEYS.RAW_MATERIAL_INVENTORY, activeBranchIdState);
+    const rawMaterialData = rawMaterialsForReport.map(item => {
+      const priceInfo = getHighestPriceInfo(item.name);
+      const costPerUnit = priceInfo ? priceInfo.pricePerBaseUnit : 0;
+      return {
+        "Materia Prima": item.name,
+        "Stock Actual": item.quantity,
+        "Unidad": item.unit,
+        "Costo Est. (USD)": costPerUnit,
+        "Valor Total (USD)": item.quantity * costPerUnit
+      };
+    });
+
+    // 5. Purchase Orders (Branch)
+    let branchPurchaseOrders = loadFromLocalStorageForBranch<PurchaseOrder[]>(KEYS.PURCHASE_ORDERS, activeBranchIdState);
+    let filteredOrders = branchPurchaseOrders.filter(po => po.status === 'Pagado');
+    if (selectedDateRange?.from) {
+      const from = startOfDay(selectedDateRange.from);
+      const to = selectedDateRange.to ? endOfDay(selectedDateRange.to) : endOfDay(selectedDateRange.from);
+      filteredOrders = filteredOrders.filter(po => {
+        const poDate = parseISO(po.orderDate);
+        return isValid(poDate) && isWithinInterval(poDate, { start: from, end: to });
+      });
+    }
+    const poData = filteredOrders.map(po => ({
+      "ID Orden": po.id,
+      "Fecha": format(parseISO(po.orderDate), "dd/MM/yyyy", { locale: es }),
+      "Proveedor": po.supplierName,
+      "Total (USD)": po.totalCost,
+      "Total (VES)": po.totalCost * exchangeRate,
+      "Items": po.items.map(item => `${item.rawMaterialName} (${item.quantity} ${item.unit})`).join(', ')
+    }));
+
+    exportMultipleSheetsToExcel([
+      { sheetName: "Ventas", data: salesData },
+      { sheetName: "Gastos", data: expensesData },
+      { sheetName: "Inventario Prod.", data: inventoryData },
+      { sheetName: "Inventario MP", data: rawMaterialData },
+      { sheetName: "Ordenes Compra", data: poData }
+    ], getReportFilename("reporte_completo_sede"));
+
+    toast({ title: "Reporte Completo Generado", description: "Se ha descargado el reporte completo en Excel." });
+  };
+
   const handleDownloadWastageReport = () => {
     if (wastageReportFullData.length === 0) {
       toast({ title: "Sin Datos", description: `No hay datos de merma para el período y sede ${activeBranchName}.`, variant: "default" });
@@ -869,7 +1241,7 @@ export default function ReportsPage() {
       reportPeriod = `${format(from, "dd/MM/yyyy", { locale: es })}${selectedDateRange.to ? ` - ${format(to, "dd/MM/yyyy", { locale: es })}` : ''}`;
     }
 
-    const doc = new jsPDF("landscape") as jsPDFWithAutoTable;
+    const doc = new jsPDF("landscape") as unknown as jsPDFWithAutoTable;
     doc.setFontSize(18);
     doc.text("Panificadora Valladares", 14, 20);
     doc.setFontSize(12);
@@ -880,7 +1252,7 @@ export default function ReportsPage() {
     doc.text("Nota: Costo de merma incluye costo de ingredientes y operativos (basados en sede actual).", 14, 48);
 
     const head = [["Producto", "Esperado", "Real", "Mermado", "Costo Unit. Merma (USD)", "Costo Merma (USD)", "Costo Merma (VES)"]];
-    const body = wastageReportFullData.map(item => [
+    const body: any[] = wastageReportFullData.map(item => [
       item.name, item.totalExpected, item.totalActual, item.totalWastageQuantity,
       `$${(item.baseUnitPriceForWastage || 0).toFixed(2)}`, `$${item.totalWastageCostUSD.toFixed(2)}`, formatVesPrice(item.totalWastageCostUSD)
     ]);
@@ -913,7 +1285,7 @@ export default function ReportsPage() {
       reportPeriod = `${format(from, "dd/MM/yyyy", { locale: es })}${selectedDateRange.to ? ` - ${format(to, "dd/MM/yyyy", { locale: es })}` : ''}`;
     }
 
-    const doc = new jsPDF("landscape") as jsPDFWithAutoTable;
+    const doc = new jsPDF("landscape") as unknown as jsPDFWithAutoTable;
     doc.setFontSize(18);
     doc.text("Panificadora Valladares", 14, 20);
     doc.setFontSize(12);
@@ -924,7 +1296,7 @@ export default function ReportsPage() {
     doc.text("Nota: Costo cambios/muestras/merma basados en costos de la sede actual.", 14, 48);
 
     const head = [["Producto", "Cant. Cambiada", "Costo Cambios (USD)", "Cant. Mermada", "Costo Merma (USD)", "Cant. Muestras", "Costo Muestras (USD)", "Cant. Total Perdida", "Costo Total Pérdida (USD)"]];
-    const body = productLossesData.map(item => [
+    const body: any[] = productLossesData.map(item => [
       item.name, item.quantityChanged, `$${item.costChangedUSD.toFixed(2)}`,
       item.quantityWasted, `$${item.costWastedUSD.toFixed(2)}`,
       item.quantitySampled, `$${item.costSampledUSD.toFixed(2)}`,
@@ -959,7 +1331,7 @@ export default function ReportsPage() {
   };
 
   const handleDownloadDetailedLossReportPDF = (report: WeeklyLossReport) => {
-    const doc = new jsPDF("landscape") as jsPDFWithAutoTable;
+    const doc = new jsPDF("landscape") as unknown as jsPDFWithAutoTable;
     doc.setFontSize(18);
     doc.text("Panificadora Valladares", 14, 20);
     doc.setFontSize(12);
@@ -969,7 +1341,7 @@ export default function ReportsPage() {
     doc.text(`Generado el: ${format(parseISO(report.generatedOn), "dd/MM/yyyy HH:mm", { locale: es })}`, 14, 42);
 
     const head = [["Fecha", "Sede", "Tipo Pérdida", "Producto", "Cliente", "Cant.", "Costo Unit. (USD)", "Costo Total (USD)"]];
-    const body = report.entries.map(entry => [
+    const body: any[] = report.entries.map(entry => [
       format(parseISO(entry.date), "dd/MM/yy", { locale: es }),
       entry.sourceBranchName,
       entry.type,
@@ -993,7 +1365,7 @@ export default function ReportsPage() {
   };
 
   const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
-    const doc = new jsPDF("landscape") as jsPDFWithAutoTable;
+    const doc = new jsPDF("landscape") as unknown as jsPDFWithAutoTable;
     doc.setFontSize(18);
     doc.text("Panificadora Valladares", 14, 20);
     doc.setFontSize(12);
@@ -1003,7 +1375,7 @@ export default function ReportsPage() {
     doc.text(`Generado el: ${format(parseISO(report.generatedOn), "dd/MM/yyyy HH:mm", { locale: es })}`, 14, 42);
 
     const head = [["Fecha", "Sede", "Producto", "Cant. Vendida", "P. Venta (USD)", "Costo Prod. (USD)", "Ganancia Unit. (USD)", "Ganancia Total (USD)"]];
-    const body = report.entries.map(entry => [
+    const body: any[] = report.entries.map(entry => [
       format(parseISO(entry.date), "dd/MM/yy", { locale: es }),
       entry.sourceBranchName,
       entry.productName,
@@ -1011,7 +1383,7 @@ export default function ReportsPage() {
       `$${entry.salePricePerUnitUSD.toFixed(2)}`,
       `$${entry.costPerUnitUSD.toFixed(3)}`,
       `$${entry.profitPerUnitUSD.toFixed(3)}`,
-      `$${entry.totalProfitUSD.toFixed(2)}`
+      `$${(entry.profitPerUnitUSD * entry.quantitySold).toFixed(2)}`
     ]);
 
     // Totals footer row
@@ -1032,7 +1404,7 @@ export default function ReportsPage() {
 
     doc.autoTable({
       startY: 50, head: head, body: body, theme: 'striped', headStyles: { fillColor: [34, 139, 34], fontSize: 10 }, bodyStyles: { fontSize: 9 },
-      didDrawPage: (data) => {
+      didDrawPage: (data: any) => {
         finalY = data.cursor?.y ?? 50;
       }
     });
@@ -1061,10 +1433,16 @@ export default function ReportsPage() {
         description={`Información de rendimiento. Ventas y Cambios son globales. Inventarios, Producción, OCs, Merma, Pérdidas y Gastos se muestran para la Sede Actual: ${activeBranchName}.`}
         icon={FileText}
         actions={
-          <Button variant="outline" onClick={() => setIsDateRangeDialogOpen(true)}>
-            <CalendarDays className="mr-2 h-4 w-4" />
-            Seleccionar Rango de Fechas
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setIsDateRangeDialogOpen(true)}>
+              <CalendarDays className="mr-2 h-4 w-4" />
+              Seleccionar Rango de Fechas
+            </Button>
+            <Button variant="default" onClick={handleDownloadFullReportExcel}>
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              Reporte Completo Excel
+            </Button>
+          </div>
         }
       />
       {selectedDateRange?.from && (
@@ -1156,17 +1534,20 @@ export default function ReportsPage() {
           </CardHeader>
           <CardContent className="h-[300px]">
             {productSalesQuantityChartData.length > 0 ? (
-              <ChartContainer config={productSalesQuantityChartConfig} className="h-full w-full">
-                <BarChart data={productSalesQuantityChartData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12} />
-                  <ChartTooltip content={<ChartTooltipContent indicator="dot" className="text-sm" />} />
-                  <Bar dataKey="quantity" fill="var(--color-quantity)" radius={4} nameKey="name" />
-                </BarChart>
-              </ChartContainer>
+              <div id="sales-chart" className="h-full w-full">
+                <ChartContainer config={productSalesQuantityChartConfig} className="h-full w-full">
+                  <BarChart data={productSalesQuantityChartData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12} />
+                    <ChartTooltip content={<ChartTooltipContent indicator="dot" className="text-sm" />} />
+                    <Bar dataKey="quantity" fill="var(--color-quantity)" radius={4} />
+                  </BarChart>
+                </ChartContainer>
+              </div>
             ) : (<p className="text-center text-muted-foreground py-8">No hay datos de ventas de productos para el período.</p>)}
           </CardContent>
-          <CardFooter>
-            <Button className="w-full" onClick={handleDownloadSalesReport}><Download className="mr-2 h-4 w-4" /> Descargar Ventas (Global)</Button>
+          <CardFooter className="flex gap-2">
+            <Button className="flex-1" onClick={handleDownloadSalesReport}><Download className="mr-2 h-4 w-4" /> PDF</Button>
+            <Button className="flex-1" variant="outline" onClick={handleDownloadSalesReportExcel}><FileSpreadsheet className="mr-2 h-4 w-4" /> Excel</Button>
           </CardFooter>
         </Card>
 
@@ -1177,17 +1558,20 @@ export default function ReportsPage() {
           </CardHeader>
           <CardContent className="h-[300px]">
             {productChangesChartData.length > 0 ? (
-              <ChartContainer config={productChangesChartConfig} className="h-full w-full">
-                <BarChart data={productChangesChartData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12} />
-                  <ChartTooltip content={<ChartTooltipContent indicator="dot" className="text-sm" />} />
-                  <Bar dataKey="quantity" fill="var(--color-quantity)" radius={4} nameKey="name" />
-                </BarChart>
-              </ChartContainer>
+              <div id="product-changes-chart" className="h-full w-full">
+                <ChartContainer config={productChangesChartConfig} className="h-full w-full">
+                  <BarChart data={productChangesChartData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12} />
+                    <ChartTooltip content={<ChartTooltipContent indicator="dot" className="text-sm" />} />
+                    <Bar dataKey="quantity" fill="var(--color-quantity)" radius={4} />
+                  </BarChart>
+                </ChartContainer>
+              </div>
             ) : (<p className="text-center text-muted-foreground py-8">No hay datos de cambios/devoluciones para el período.</p>)}
           </CardContent>
-          <CardFooter>
-            <Button className="w-full" onClick={handleDownloadProductChangesReport}><Download className="mr-2 h-4 w-4" /> Descargar Cambios (Global)</Button>
+          <CardFooter className="flex gap-2">
+            <Button className="flex-1" onClick={handleDownloadProductChangesReport}><Download className="mr-2 h-4 w-4" /> PDF</Button>
+            <Button className="flex-1" variant="outline" onClick={handleDownloadProductChangesReportExcel}><FileSpreadsheet className="mr-2 h-4 w-4" /> Excel</Button>
           </CardFooter>
         </Card>
 
@@ -1198,13 +1582,15 @@ export default function ReportsPage() {
           </CardHeader>
           <CardContent className="h-[300px]">
             {productWastageChartData.length > 0 ? (
-              <ChartContainer config={productWastageChartConfig} className="h-full w-full">
-                <BarChart data={productWastageChartData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickFormatter={(value) => `$${value}`} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12} />
-                  <ChartTooltip content={({ active, payload }) => { if (active && payload && payload.length) { const data = payload[0].payload; return (<div className="rounded-lg border bg-background p-2 shadow-sm text-sm"><div className="grid grid-cols-1 gap-1.5"><span className="font-medium">{data.name}</span><span className="text-muted-foreground">Costo Merma: <span className="font-semibold text-destructive">${data.wastageCostUSD.toFixed(2)}</span></span><span className="text-muted-foreground">Cant. Mermada: <span className="font-semibold">{data.wastageQuantity} unid.</span></span></div></div>); } return null; }} />
-                  <Bar dataKey="wastageCostUSD" fill="var(--color-wastageCostUSD)" radius={4} nameKey="name" />
-                </BarChart>
-              </ChartContainer>
+              <div id="wastage-chart" className="h-full w-full">
+                <ChartContainer config={productWastageChartConfig} className="h-full w-full">
+                  <BarChart data={productWastageChartData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickFormatter={(value) => `$${value}`} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12} />
+                    <ChartTooltip content={({ active, payload }) => { if (active && payload && payload.length) { const data = payload[0].payload; return (<div className="rounded-lg border bg-background p-2 shadow-sm text-sm"><div className="grid grid-cols-1 gap-1.5"><span className="font-medium">{data.name}</span><span className="text-muted-foreground">Costo Merma: <span className="font-semibold text-destructive">${data.wastageCostUSD.toFixed(2)}</span></span><span className="text-muted-foreground">Cant. Mermada: <span className="font-semibold">{data.wastageQuantity} unid.</span></span></div></div>); } return null; }} />
+                    <Bar dataKey="wastageCostUSD" fill="var(--color-wastageCostUSD)" radius={4} />
+                  </BarChart>
+                </ChartContainer>
+              </div>
             ) : (<p className="text-center text-muted-foreground py-8">No hay datos de merma para el período y sede actual.</p>)}
           </CardContent>
           <CardFooter>
@@ -1219,30 +1605,32 @@ export default function ReportsPage() {
           </CardHeader>
           <CardContent className="h-[300px]">
             {productLossesData.length > 0 ? (
-              <ChartContainer config={productLossesChartConfig} className="h-full w-full">
-                <BarChart data={productLossesData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickFormatter={(value) => `$${value}`} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12} />
-                  <ChartTooltip content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const data = payload[0].payload;
-                      return (
-                        <div className="rounded-lg border bg-background p-2 shadow-sm text-sm">
-                          <div className="grid grid-cols-1 gap-1.5">
-                            <span className="font-medium">{data.name}</span>
-                            <span className="text-muted-foreground">Costo Total Perdido: <span className="font-semibold text-destructive">${data.totalCostLostUSD.toFixed(2)}</span></span>
-                            <span className="text-muted-foreground">Cant. Total Perdida: <span className="font-semibold">{data.totalQuantityLost} unid.</span></span>
-                            <span className="text-xs text-muted-foreground">(Cambios: {data.quantityChanged} unid, ${data.costChangedUSD.toFixed(2)})</span>
-                            <span className="text-xs text-muted-foreground">(Merma: {data.quantityWasted} unid, ${data.costWastedUSD.toFixed(2)})</span>
-                            <span className="text-xs text-muted-foreground">(Muestras: {data.quantitySampled} unid, ${data.costSampledUSD.toFixed(2)})</span>
+              <div id="losses-chart" className="h-full w-full">
+                <ChartContainer config={productLossesChartConfig} className="h-full w-full">
+                  <BarChart data={productLossesData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickFormatter={(value) => `$${value}`} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12} />
+                    <ChartTooltip content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="rounded-lg border bg-background p-2 shadow-sm text-sm">
+                            <div className="grid grid-cols-1 gap-1.5">
+                              <span className="font-medium">{data.name}</span>
+                              <span className="text-muted-foreground">Costo Total Perdido: <span className="font-semibold text-destructive">${data.totalCostLostUSD.toFixed(2)}</span></span>
+                              <span className="text-muted-foreground">Cant. Total Perdida: <span className="font-semibold">{data.totalQuantityLost} unid.</span></span>
+                              <span className="text-xs text-muted-foreground">(Cambios: {data.quantityChanged} unid, ${data.costChangedUSD.toFixed(2)})</span>
+                              <span className="text-xs text-muted-foreground">(Merma: {data.quantityWasted} unid, ${data.costWastedUSD.toFixed(2)})</span>
+                              <span className="text-xs text-muted-foreground">(Muestras: {data.quantitySampled} unid, ${data.costSampledUSD.toFixed(2)})</span>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    }
-                    return null;
-                  }} />
-                  <Bar dataKey="totalCostLostUSD" fill="var(--color-totalCostLostUSD)" radius={4} nameKey="name" />
-                </BarChart>
-              </ChartContainer>
+                        );
+                      }
+                      return null;
+                    }} />
+                    <Bar dataKey="totalCostLostUSD" fill="var(--color-totalCostLostUSD)" radius={4} />
+                  </BarChart>
+                </ChartContainer>
+              </div>
             ) : (<p className="text-center text-muted-foreground py-8">No hay datos consolidados de pérdidas para el período y sede actual.</p>)}
           </CardContent>
           <CardFooter>
@@ -1257,13 +1645,16 @@ export default function ReportsPage() {
           </CardHeader>
           <CardContent className="h-[300px]">
             {expensesChartData.length > 0 ? (
-              <ChartContainer config={expensesChartConfig} className="h-full w-full">
-                <ResponsiveContainer width="100%" height="100%"><PieChart><ChartTooltip content={<ChartTooltipContent nameKey="category" hideLabel className="text-sm" />} /><Pie data={expensesChartData} dataKey="total" nameKey="category" cx="50%" cy="50%" outerRadius={80} labelLine={false} label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => { const RADIAN = Math.PI / 180; const radius = innerRadius + (outerRadius - innerRadius) * 0.5; const x = cx + radius * Math.cos(-midAngle * RADIAN); const y = cy + radius * Math.sin(-midAngle * RADIAN); return (percent || 0) * 100 > 5 ? (<text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize={12}>{`${((percent || 0) * 100).toFixed(0)}%`}</text>) : null; }}>{expensesChartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.fill} />))}</Pie><ChartLegend content={<ChartLegendContent nameKey="category" className="text-sm" />} /></PieChart></ResponsiveContainer>
-              </ChartContainer>
+              <div id="expenses-chart" className="h-full w-full">
+                <ChartContainer config={expensesChartConfig} className="h-full w-full">
+                  <ResponsiveContainer width="100%" height="100%"><PieChart><ChartTooltip content={<ChartTooltipContent nameKey="category" hideLabel className="text-sm" />} /><Pie data={expensesChartData} dataKey="total" nameKey="category" cx="50%" cy="50%" outerRadius={80} labelLine={false} label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => { const RADIAN = Math.PI / 180; const radius = innerRadius + (outerRadius - innerRadius) * 0.5; const x = cx + radius * Math.cos(-midAngle * RADIAN); const y = cy + radius * Math.sin(-midAngle * RADIAN); return (percent || 0) * 100 > 5 ? (<text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize={12}>{`${((percent || 0) * 100).toFixed(0)}%`}</text>) : null; }}>{expensesChartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.fill} />))}</Pie><ChartLegend content={<ChartLegendContent nameKey="category" className="text-sm" />} /></PieChart></ResponsiveContainer>
+                </ChartContainer>
+              </div>
             ) : (<p className="text-center text-muted-foreground py-8">No hay datos de gastos para el período y sede actual.</p>)}
           </CardContent>
-          <CardFooter>
-            <Button className="w-full" onClick={handleDownloadExpenseReport}><Download className="mr-2 h-4 w-4" /> Descargar Gastos (Sede: {activeBranchName})</Button>
+          <CardFooter className="flex gap-2">
+            <Button className="flex-1" onClick={handleDownloadExpenseReport}><Download className="mr-2 h-4 w-4" /> PDF</Button>
+            <Button className="flex-1" variant="outline" onClick={handleDownloadExpenseReportExcel}><FileSpreadsheet className="mr-2 h-4 w-4" /> Excel</Button>
           </CardFooter>
         </Card>
 
@@ -1281,8 +1672,9 @@ export default function ReportsPage() {
               </ChartContainer>
             ) : (<p className="text-center text-muted-foreground py-8">No hay productos en stock en la sede actual.</p>)}
           </CardContent>
-          <CardFooter>
-            <Button className="w-full" onClick={handleDownloadInventoryReport}><Download className="mr-2 h-4 w-4" /> Descargar Stock Prod. (Sede: {activeBranchName})</Button>
+          <CardFooter className="flex gap-2">
+            <Button className="flex-1" onClick={handleDownloadInventoryReport}><Download className="mr-2 h-4 w-4" /> PDF</Button>
+            <Button className="flex-1" variant="outline" onClick={handleDownloadInventoryReportExcel}><FileSpreadsheet className="mr-2 h-4 w-4" /> Excel</Button>
           </CardFooter>
         </Card>
 
@@ -1300,8 +1692,9 @@ export default function ReportsPage() {
               </ChartContainer>
             ) : (<p className="text-center text-muted-foreground py-8">No hay materia prima en inventario en la sede actual.</p>)}
           </CardContent>
-          <CardFooter>
-            <Button className="w-full" onClick={handleDownloadRawMaterialInventoryReport}><Download className="mr-2 h-4 w-4" /> Descargar Materia Prima (Sede: {activeBranchName})</Button>
+          <CardFooter className="flex gap-2">
+            <Button className="flex-1" onClick={handleDownloadRawMaterialInventoryReport}><Download className="mr-2 h-4 w-4" /> PDF</Button>
+            <Button className="flex-1" variant="outline" onClick={handleDownloadRawMaterialInventoryReportExcel}><FileSpreadsheet className="mr-2 h-4 w-4" /> Excel</Button>
           </CardFooter>
         </Card>
 
@@ -1319,8 +1712,9 @@ export default function ReportsPage() {
               </ChartContainer>
             ) : (<p className="text-center text-muted-foreground py-8">No hay órdenes de compra pagadas para el período y sede actual.</p>)}
           </CardContent>
-          <CardFooter>
-            <Button className="w-full" onClick={handleDownloadPurchaseOrdersReport}><Download className="mr-2 h-4 w-4" /> Descargar Órdenes Compra (Sede: {activeBranchName})</Button>
+          <CardFooter className="flex gap-2">
+            <Button className="flex-1" onClick={handleDownloadPurchaseOrdersReport}><Download className="mr-2 h-4 w-4" /> PDF</Button>
+            <Button className="flex-1" variant="outline" onClick={handleDownloadPurchaseOrdersReportExcel}><FileSpreadsheet className="mr-2 h-4 w-4" /> Excel</Button>
           </CardFooter>
         </Card>
 
@@ -1441,7 +1835,7 @@ export default function ReportsPage() {
                       <TableCell className="text-right">${entry.salePricePerUnitUSD.toFixed(2)}</TableCell>
                       <TableCell className="text-right">${entry.costPerUnitUSD.toFixed(3)}</TableCell>
                       <TableCell className="text-right text-green-600">${entry.profitPerUnitUSD.toFixed(3)}</TableCell>
-                      <TableCell className="text-right text-green-600 font-semibold">${entry.totalProfitUSD.toFixed(2)}</TableCell>
+                      <TableCell className="text-right text-green-600 font-semibold">${(entry.profitPerUnitUSD * entry.quantitySold).toFixed(2)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
