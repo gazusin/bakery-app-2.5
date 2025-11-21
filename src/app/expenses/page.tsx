@@ -23,6 +23,7 @@ import type { DateRange } from "react-day-picker";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useAudit } from "@/hooks/useAudit";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -56,6 +57,7 @@ const mainExpenseCategoriesInternal = [
 
 export default function ExpensesPage() {
   const { toast } = useToast();
+  const { logCreate, logUpdate, logDelete } = useAudit();
   const [allExpenses, setAllExpenses] = useState<Expense[]>([]);
   const [filteredExpenses, setFilteredExpenses] = useState<Expense[]>([]);
   const [exchangeRate, setExchangeRate] = useState<number>(0);
@@ -79,7 +81,7 @@ export default function ExpensesPage() {
 
   const refreshExpenseCategoriesLists = useCallback(() => {
     const activeBranch = getActiveBranchId();
-    if(activeBranch) {
+    if (activeBranch) {
       setFixedCategoriesListFromStorage(loadExpenseFixedCategories(activeBranch));
       setVariableCategoriesListFromStorage(loadExpenseVariableCategories(activeBranch));
     } else {
@@ -97,13 +99,13 @@ export default function ExpensesPage() {
     if (currentActiveBranchId) {
       const currentExpenses = loadFromLocalStorageForBranch<Expense[]>(KEYS.EXPENSES, currentActiveBranchId);
       const sortedExpenses = [...currentExpenses].sort((a, b) => {
-          const dateA = a.timestamp && isValid(parseISO(a.timestamp)) ? parseISO(a.timestamp).getTime() : (a.date && isValid(parseISO(a.date)) ? parseISO(a.date).getTime() : 0);
-          const dateB = b.timestamp && isValid(parseISO(b.timestamp)) ? parseISO(b.timestamp).getTime() : (b.date && isValid(parseISO(b.date)) ? parseISO(b.date).getTime() : 0);
-          return dateB - dateA;
+        const dateA = a.timestamp && isValid(parseISO(a.timestamp)) ? parseISO(a.timestamp).getTime() : (a.date && isValid(parseISO(a.date)) ? parseISO(a.date).getTime() : 0);
+        const dateB = b.timestamp && isValid(parseISO(b.timestamp)) ? parseISO(b.timestamp).getTime() : (b.date && isValid(parseISO(b.date)) ? parseISO(b.date).getTime() : 0);
+        return dateB - dateA;
       });
       setAllExpenses(sortedExpenses);
-      setFilteredExpenses(sortedExpenses); 
-      setEmployees(loadFromLocalStorageForBranch<Employee[]>(KEYS.EMPLOYEES, currentActiveBranchId).sort((a,b) => a.name.localeCompare(b.name)));
+      setFilteredExpenses(sortedExpenses);
+      setEmployees(loadFromLocalStorageForBranch<Employee[]>(KEYS.EMPLOYEES, currentActiveBranchId).sort((a, b) => a.name.localeCompare(b.name)));
     } else {
       setAllExpenses([]);
       setFilteredExpenses([]);
@@ -121,12 +123,12 @@ export default function ExpensesPage() {
     loadExpensesAndRate();
     const handleDataUpdate = (event: Event) => {
       const customEvent = event as CustomEvent;
-      if (customEvent.detail?.key === KEYS.EXPENSES || 
-          customEvent.detail?.key === KEYS.ACTIVE_BRANCH_ID ||
-          customEvent.detail?.key === KEYS.EXPENSE_FIXED_CATEGORIES || 
-          customEvent.detail?.key === KEYS.EXPENSE_VARIABLE_CATEGORIES ||
-          customEvent.detail?.key === KEYS.EXCHANGE_RATE_HISTORY
-         ) {
+      if (customEvent.detail?.key === KEYS.EXPENSES ||
+        customEvent.detail?.key === KEYS.ACTIVE_BRANCH_ID ||
+        customEvent.detail?.key === KEYS.EXPENSE_FIXED_CATEGORIES ||
+        customEvent.detail?.key === KEYS.EXPENSE_VARIABLE_CATEGORIES ||
+        customEvent.detail?.key === KEYS.EXCHANGE_RATE_HISTORY
+      ) {
         loadExpensesAndRate();
       }
     };
@@ -157,9 +159,9 @@ export default function ExpensesPage() {
   const handleOpenExpenseFormDialog = (expense?: Expense) => {
     setExpenseToEdit(expense || null);
     if (expense) {
-        setOriginalExpenseForEdit(JSON.parse(JSON.stringify(expense)));
+      setOriginalExpenseForEdit(JSON.parse(JSON.stringify(expense)));
     } else {
-        setOriginalExpenseForEdit(null);
+      setOriginalExpenseForEdit(null);
     }
     setIsExpenseFormDialogOpen(true);
   };
@@ -182,23 +184,23 @@ export default function ExpensesPage() {
       return;
     }
     if (category === "Compra de Materia Prima") {
-        toast({ title: "Error", description: "Gastos por 'Compra de Materia Prima' deben registrarse vía Órdenes de Compra.", variant: "destructive", duration: 7000 });
-        return;
+      toast({ title: "Error", description: "Gastos por 'Compra de Materia Prima' deben registrarse vía Órdenes de Compra.", variant: "destructive", duration: 7000 });
+      return;
     }
     const amountNumUSD = parseFloat(amount.toString());
     if (isNaN(amountNumUSD) || amountNumUSD <= 0) {
       toast({ title: "Error", description: "El monto debe ser un número positivo.", variant: "destructive" });
       return;
     }
-    
+
     // Usar la tasa para la fecha del gasto, no la actual
     const currentGlobalRate = loadExchangeRate(expenseData.date ? parseISO(expenseData.date) : new Date());
 
     if ((paymentAccountId === 'vesElectronic' || paymentAccountId === 'vesCash') && currentGlobalRate <= 0) {
-        toast({ title: "Error de Tasa", description: `No hay tasa de cambio configurada para la fecha ${expenseData.date} para procesar pagos en VES.`, variant: "destructive", duration: 7000 });
-        return;
+      toast({ title: "Error de Tasa", description: `No hay tasa de cambio configurada para la fecha ${expenseData.date} para procesar pagos en VES.`, variant: "destructive", duration: 7000 });
+      return;
     }
-    
+
     try {
       setIsPageSubmitting(true);
 
@@ -208,9 +210,9 @@ export default function ExpensesPage() {
       const paymentAccountDetails = currentCompanyAccounts[paymentAccountId];
 
       if (!paymentAccountDetails) {
-          toast({ title: "Error de Cuenta", description: `La cuenta de pago ${accountTypeNames[paymentAccountId]} no fue encontrada para la sede ${activeBranchName}.`, variant: "destructive" });
-          setIsPageSubmitting(false); 
-          return;
+        toast({ title: "Error de Cuenta", description: `La cuenta de pago ${accountTypeNames[paymentAccountId]} no fue encontrada para la sede ${activeBranchName}.`, variant: "destructive" });
+        setIsPageSubmitting(false);
+        return;
       }
 
       let transactionAmountInAccountCurrency = amountNumUSD;
@@ -218,29 +220,29 @@ export default function ExpensesPage() {
       let amountInOtherCurrencyForTx: number | undefined = undefined;
 
       if (paymentAccountDetails.currency === 'VES') {
-          transactionAmountInAccountCurrency = amountNumUSD * currentGlobalRate;
-          expenseCurrencyForTx = 'VES';
-          amountInOtherCurrencyForTx = amountNumUSD;
+        transactionAmountInAccountCurrency = amountNumUSD * currentGlobalRate;
+        expenseCurrencyForTx = 'VES';
+        amountInOtherCurrencyForTx = amountNumUSD;
       } else {
-          transactionAmountInAccountCurrency = amountNumUSD;
-          expenseCurrencyForTx = 'USD';
-          if (currentGlobalRate > 0) {
-              amountInOtherCurrencyForTx = amountNumUSD * currentGlobalRate;
-          }
+        transactionAmountInAccountCurrency = amountNumUSD;
+        expenseCurrencyForTx = 'USD';
+        if (currentGlobalRate > 0) {
+          amountInOtherCurrencyForTx = amountNumUSD * currentGlobalRate;
+        }
       }
 
       if (isEditing && originalExpenseForEdit && originalExpenseId) {
-          currentAllExpenses = currentAllExpenses.filter(e => e.id !== originalExpenseId);
-          const originalTxIndex = currentAccountTransactions.findIndex(tx => tx.sourceId === originalExpenseId && tx.sourceModule === 'Gastos Operativos');
-          if (originalTxIndex !== -1) {
-              const originalTx = currentAccountTransactions[originalTxIndex];
-              const originalPaymentAccId = originalExpenseForEdit.paymentAccountId!;
-              const accountToRevert = currentCompanyAccounts[originalPaymentAccId];
-              if (accountToRevert) {
-                  accountToRevert.balance = parseFloat((accountToRevert.balance + originalTx.amount).toFixed(2)); 
-              }
-              currentAccountTransactions.splice(originalTxIndex, 1);
+        currentAllExpenses = currentAllExpenses.filter(e => e.id !== originalExpenseId);
+        const originalTxIndex = currentAccountTransactions.findIndex(tx => tx.sourceId === originalExpenseId && tx.sourceModule === 'Gastos Operativos');
+        if (originalTxIndex !== -1) {
+          const originalTx = currentAccountTransactions[originalTxIndex];
+          const originalPaymentAccId = originalExpenseForEdit.paymentAccountId!;
+          const accountToRevert = currentCompanyAccounts[originalPaymentAccId];
+          if (accountToRevert) {
+            accountToRevert.balance = parseFloat((accountToRevert.balance + originalTx.amount).toFixed(2));
           }
+          currentAccountTransactions.splice(originalTxIndex, 1);
+        }
       }
 
       const newOrUpdatedExpense: Expense = {
@@ -268,15 +270,15 @@ export default function ExpensesPage() {
 
       const accountToUpdate = currentCompanyAccounts[paymentAccountId];
       if (accountToUpdate) {
-          accountToUpdate.balance = parseFloat((accountToUpdate.balance - accountTransactionForStorage.amount).toFixed(2));
-          accountTransactionForStorage.balanceAfterTransaction = accountToUpdate.balance;
-          accountToUpdate.lastTransactionDate = new Date().toISOString();
+        accountToUpdate.balance = parseFloat((accountToUpdate.balance - accountTransactionForStorage.amount).toFixed(2));
+        accountTransactionForStorage.balanceAfterTransaction = accountToUpdate.balance;
+        accountToUpdate.lastTransactionDate = new Date().toISOString();
       }
 
       const finalExpenses = [newOrUpdatedExpense, ...currentAllExpenses].sort((a, b) => {
-          const dateA = a.timestamp && isValid(parseISO(a.timestamp)) ? parseISO(a.timestamp).getTime() : (a.date && isValid(parseISO(a.date)) ? parseISO(a.date).getTime() : 0);
-          const dateB = b.timestamp && isValid(parseISO(b.timestamp)) ? parseISO(b.timestamp).getTime() : (b.date && isValid(parseISO(b.date)) ? parseISO(b.date).getTime() : 0);
-          return dateB - dateA;
+        const dateA = a.timestamp && isValid(parseISO(a.timestamp)) ? parseISO(a.timestamp).getTime() : (a.date && isValid(parseISO(a.date)) ? parseISO(a.date).getTime() : 0);
+        const dateB = b.timestamp && isValid(parseISO(b.timestamp)) ? parseISO(b.timestamp).getTime() : (b.date && isValid(parseISO(b.date)) ? parseISO(b.date).getTime() : 0);
+        return dateB - dateA;
       });
       saveExpensesData(activeBranchId, finalExpenses);
 
@@ -285,6 +287,27 @@ export default function ExpensesPage() {
       saveCompanyAccountsData(activeBranchId, currentCompanyAccounts);
 
       toast({ title: "Éxito", description: `Gasto ${isEditing ? 'actualizado' : 'registrado'} y cuenta actualizada en sede ${activeBranchName}.` });
+
+      // Registrar auditoría
+      if (isEditing) {
+        logUpdate(
+          'gastos',
+          'expense',
+          newOrUpdatedExpense.id,
+          { before: originalExpenseForEdit, after: newOrUpdatedExpense },
+          `Gasto actualizado: ${newOrUpdatedExpense.description}`,
+          activeBranchId
+        );
+      } else {
+        logCreate(
+          'gastos',
+          'expense',
+          newOrUpdatedExpense.id,
+          `Gasto registrado: ${newOrUpdatedExpense.description} - $${amountNumUSD.toFixed(2)}`,
+          activeBranchId
+        );
+      }
+
       setIsExpenseFormDialogOpen(false);
       setExpenseToEdit(null);
       setOriginalExpenseForEdit(null);
@@ -299,8 +322,8 @@ export default function ExpensesPage() {
 
   const handleOpenDeleteConfirmation = (expense: Expense) => {
     if (expense.sourceModule === 'Compra Materia Prima') {
-        toast({ title: "Información", description: "Este gasto se originó desde una Orden de Compra y debe gestionarse allí.", variant: "default" });
-        return;
+      toast({ title: "Información", description: "Este gasto se originó desde una Orden de Compra y debe gestionarse allí.", variant: "default" });
+      return;
     }
     setExpenseToDeleteId(expense.id);
     setIsDeleteConfirmDialogOpen(true);
@@ -313,8 +336,8 @@ export default function ExpensesPage() {
       return;
     }
     if (!expenseToDeleteId) {
-        toast({ title: "Error", description: "ID de gasto a eliminar no especificado.", variant: "destructive" });
-        return;
+      toast({ title: "Error", description: "ID de gasto a eliminar no especificado.", variant: "destructive" });
+      return;
     }
 
     try {
@@ -343,14 +366,23 @@ export default function ExpensesPage() {
         const paymentAccIdOfDeletedTx = expenseToDeleteDetails.paymentAccountId!;
         const accountToRevert = currentCompanyAccounts[paymentAccIdOfDeletedTx];
         if (accountToRevert) {
-            accountToRevert.balance = parseFloat((accountToRevert.balance + txToDelete.amount).toFixed(2)); 
-            accountToRevert.lastTransactionDate = new Date().toISOString();
+          accountToRevert.balance = parseFloat((accountToRevert.balance + txToDelete.amount).toFixed(2));
+          accountToRevert.lastTransactionDate = new Date().toISOString();
         }
         currentAccountTransactions.splice(txIndexToDelete, 1);
         saveAccountTransactionsData(activeBranchId, currentAccountTransactions);
         saveCompanyAccountsData(activeBranchId, currentCompanyAccounts);
       }
       toast({ title: "Éxito", description: `Gasto eliminado y cuenta ajustada en sede ${activeBranchName}.` });
+
+      // Registrar auditoría
+      logDelete(
+        'gastos',
+        'expense',
+        expenseToDeleteId,
+        `Gasto eliminado: ${expenseToDeleteDetails.description} - $${expenseToDeleteDetails.amount.toFixed(2)}`,
+        activeBranchId
+      );
     } catch (error) {
       console.error("Error al eliminar el gasto:", error);
       toast({ title: "Error Inesperado", description: "Ocurrió un error al eliminar el gasto. Inténtalo de nuevo.", variant: "destructive" });
@@ -391,7 +423,7 @@ export default function ExpensesPage() {
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div><CardTitle>Historial de Gastos (Sede: ${activeBranchName})</CardTitle><CardDescription>Un registro detallado de todos los gastos registrados para esta sede.</CardDescription></div>
             <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-              <Popover><PopoverTrigger asChild><Button id="date-filter-expenses" variant={"outline"} className={cn("w-full sm:w-[260px] justify-start text-left font-normal", !dateRangeFilter && "text-muted-foreground")} disabled={isPageSubmitting || isLoading}><CalendarIcon className="mr-2 h-4 w-4" />{dateRangeFilter?.from ? (dateRangeFilter.to ? (<>{format(dateRangeFilter.from, "LLL dd, y", { locale: es })} - {format(dateRangeFilter.to, "LLL dd, y", { locale: es })}</>) : (format(dateRangeFilter.from, "LLL dd, y", { locale: es }))) : (<span>Filtrar por Fecha</span>)}</Button></PopoverTrigger><PopoverContent className="w-auto p-0" align="end"><Calendar initialFocus mode="range" defaultMonth={dateRangeFilter?.from} selected={dateRangeFilter} onSelect={setDateRangeFilter} numberOfMonths={2} locale={es} disabled={isPageSubmitting || isLoading}/></PopoverContent></Popover>
+              <Popover><PopoverTrigger asChild><Button id="date-filter-expenses" variant={"outline"} className={cn("w-full sm:w-[260px] justify-start text-left font-normal", !dateRangeFilter && "text-muted-foreground")} disabled={isPageSubmitting || isLoading}><CalendarIcon className="mr-2 h-4 w-4" />{dateRangeFilter?.from ? (dateRangeFilter.to ? (<>{format(dateRangeFilter.from, "LLL dd, y", { locale: es })} - {format(dateRangeFilter.to, "LLL dd, y", { locale: es })}</>) : (format(dateRangeFilter.from, "LLL dd, y", { locale: es }))) : (<span>Filtrar por Fecha</span>)}</Button></PopoverTrigger><PopoverContent className="w-auto p-0" align="end"><Calendar initialFocus mode="range" defaultMonth={dateRangeFilter?.from} selected={dateRangeFilter} onSelect={setDateRangeFilter} numberOfMonths={2} locale={es} disabled={isPageSubmitting || isLoading} /></PopoverContent></Popover>
               <Button onClick={handleApplyFilters} className="w-full sm:w-auto" disabled={isPageSubmitting || isLoading}><Filter className="mr-2 h-4 w-4" /> Aplicar Filtro</Button>
               <Button onClick={handleClearFilters} variant="outline" className="w-full sm:w-auto" disabled={isPageSubmitting || isLoading}>Limpiar</Button>
             </div>
@@ -405,9 +437,9 @@ export default function ExpensesPage() {
                   <TableCell>
                     {expense.date && isValid(parseISO(expense.date)) ? format(parseISO(expense.date), "dd/MM/yy", { locale: es }) : '-'}
                     {expense.timestamp && isValid(parseISO(expense.timestamp)) && (
-                        <span className="block text-xs text-muted-foreground">
-                            {format(parseISO(expense.timestamp), "hh:mm a", { locale: es })}
-                        </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {format(parseISO(expense.timestamp), "hh:mm a", { locale: es })}
+                      </span>
                     )}
                   </TableCell>
                   <TableCell>{expense.mainCategoryType || 'N/A'}</TableCell>
@@ -427,15 +459,15 @@ export default function ExpensesPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem 
-                            onClick={() => handleOpenExpenseFormDialog(expense)} 
+                          <DropdownMenuItem
+                            onClick={() => handleOpenExpenseFormDialog(expense)}
                             disabled={isPageSubmitting || expense.sourceModule === 'Compra Materia Prima'}
                           >
                             <Edit className="mr-2 h-4 w-4" />Editar
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => handleOpenDeleteConfirmation(expense)} 
-                            className="text-destructive focus:text-destructive-foreground focus:bg-destructive" 
+                          <DropdownMenuItem
+                            onClick={() => handleOpenDeleteConfirmation(expense)}
+                            className="text-destructive focus:text-destructive-foreground focus:bg-destructive"
                             disabled={isPageSubmitting || expense.sourceModule === 'Compra Materia Prima'}
                           >
                             <Trash2 className="mr-2 h-4 w-4" />Eliminar
@@ -455,13 +487,13 @@ export default function ExpensesPage() {
       <ExpenseFormDialog
         isOpen={isExpenseFormDialogOpen}
         onOpenChange={(isOpen) => {
-            if (!isPageSubmitting) {
-                 setIsExpenseFormDialogOpen(isOpen);
-                 if (!isOpen) {
-                     setExpenseToEdit(null);
-                     setOriginalExpenseForEdit(null);
-                 }
+          if (!isPageSubmitting) {
+            setIsExpenseFormDialogOpen(isOpen);
+            if (!isOpen) {
+              setExpenseToEdit(null);
+              setOriginalExpenseForEdit(null);
             }
+          }
         }}
         expenseToEdit={expenseToEdit}
         onSubmit={handleSubmitExpense}
@@ -479,7 +511,7 @@ export default function ExpensesPage() {
       />
 
       <Dialog open={isDeleteConfirmDialogOpen} onOpenChange={(isOpen) => { if (!isPageSubmitting) setIsDeleteConfirmDialogOpen(isOpen); }}>
-        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Confirmar Eliminación</DialogTitle><DialogDescription>¿Estás seguro de que quieres eliminar este gasto? Esta acción no se puede deshacer y afectará el saldo de la cuenta de la sede actual.</DialogDescription></DialogHeader><DialogFooter className="sm:justify-end"><DialogClose asChild><Button variant="outline" onClick={() => { if (!isPageSubmitting) { setIsDeleteConfirmDialogOpen(false); setExpenseToDeleteId(null); }}} disabled={isPageSubmitting}>Cancelar</Button></DialogClose><Button variant="destructive" onClick={handleConfirmDeleteExpense} disabled={isPageSubmitting}>{isPageSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}{isPageSubmitting ? "Eliminando..." : "Eliminar Gasto"}</Button></DialogFooter></DialogContent>
+        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Confirmar Eliminación</DialogTitle><DialogDescription>¿Estás seguro de que quieres eliminar este gasto? Esta acción no se puede deshacer y afectará el saldo de la cuenta de la sede actual.</DialogDescription></DialogHeader><DialogFooter className="sm:justify-end"><DialogClose asChild><Button variant="outline" onClick={() => { if (!isPageSubmitting) { setIsDeleteConfirmDialogOpen(false); setExpenseToDeleteId(null); } }} disabled={isPageSubmitting}>Cancelar</Button></DialogClose><Button variant="destructive" onClick={handleConfirmDeleteExpense} disabled={isPageSubmitting}>{isPageSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}{isPageSubmitting ? "Eliminando..." : "Eliminar Gasto"}</Button></DialogFooter></DialogContent>
       </Dialog>
     </div>
   );

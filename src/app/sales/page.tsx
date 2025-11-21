@@ -24,6 +24,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ShoppingCart, PlusCircle, MoreHorizontal, Edit, Trash2, Calendar as CalendarIcon, Loader2, Trash, FileText as InvoiceIcon, Filter, Gift, AlertTriangle, Eye, DollarSign, Info, ShieldCheck, Bot, MessageCircle } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
+import { useAudit } from "@/hooks/useAudit";
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from "@/components/ui/calendar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -95,6 +96,7 @@ const saleStatusOptions: SaleStatus[] = ['Completada', 'Pendiente de Pago', 'Ven
 
 export default function SalesPage() {
   const { toast } = useToast();
+  const { logCreate, logUpdate, logDelete } = useAudit();
   const [allSales, setAllSales] = useState<Sale[]>([]);
   const [filteredSales, setFilteredSales] = useState<Sale[]>([]);
   const [availableProducts, setAvailableProducts] = useState<Product[]>([]);
@@ -492,6 +494,17 @@ export default function SalesPage() {
     }
 
     toast({ title: totalInvoiceAmount < 0 ? "Nota de Crédito Creada" : "Venta Registrada", description: `La operación se ha registrado exitosamente.` });
+
+    // Registrar auditoría
+    logCreate(
+      'ventas',
+      'sale',
+      saleId,
+      { sale: newSaleEntry },
+      `Venta registrada para ${newSaleEntry.customerName}: $${totalInvoiceAmount.toFixed(2)}`,
+      newSaleEntry.itemsPerBranch[0]?.branchId
+    );
+
     setIsAddSaleDialogOpen(false); setIsSubmitting(false);
   };
 
@@ -637,6 +650,17 @@ export default function SalesPage() {
     }
 
     toast({ title: "Venta Actualizada", description: "La venta ha sido modificada y los datos actualizados." });
+
+    // Registrar auditoría
+    logUpdate(
+      'ventas',
+      'sale',
+      updatedSaleEntry.id,
+      { before: originalSaleForEdit, after: updatedSaleEntry },
+      `Venta actualizada para ${updatedSaleEntry.customerName}`,
+      updatedSaleEntry.itemsPerBranch[0]?.branchId
+    );
+
     setIsEditSaleDialogOpen(false);
     setEditingSale(null);
     setOriginalSaleForEdit(null);
@@ -695,6 +719,16 @@ export default function SalesPage() {
     saveSalesData(updatedSales);
 
     toast({ title: "Operación Eliminada", description: "La venta o nota de crédito y sus transacciones asociadas han sido eliminadas." });
+
+    // Registrar auditoría
+    logDelete(
+      'ventas',
+      'sale',
+      saleToDeleteId,
+      `Venta eliminada para ${saleToDelete.customerName}: $${saleToDelete.totalAmount.toFixed(2)}`,
+      saleToDelete.itemsPerBranch[0]?.branchId
+    );
+
     setSaleToDeleteId(null);
     setIsDeleteConfirmDialogOpen(false);
     setIsSubmitting(false);
