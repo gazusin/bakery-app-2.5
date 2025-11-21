@@ -278,7 +278,7 @@ export default function RootLayout({
                                 className="justify-start text-sm"
                                 isActive={pathname === item.href}
                               >
-                                <Link href={item.href} className="flex items-center w-full">
+                                <Link href={item.href} prefetch={true} className="flex items-center w-full">
                                   <item.icon className="h-5 w-5 mr-3 group-data-[collapsible=icon]:mr-0 flex-shrink-0" />
                                   <span className="group-data-[collapsible=icon]:hidden flex-grow truncate">{item.label}</span>
                                   {item.scope === 'global' && (
@@ -300,7 +300,7 @@ export default function RootLayout({
                                 className="justify-start text-sm"
                                 isActive={pathname === item.href}
                               >
-                                <Link href={item.href} className="flex items-center w-full">
+                                <Link href={item.href} prefetch={true} className="flex items-center w-full">
                                   <item.icon className="h-5 w-5 mr-3 group-data-[collapsible=icon]:mr-0 flex-shrink-0" />
                                   <span className="group-data-[collapsible=icon]:hidden flex-grow truncate">{item.label}</span>
                                   {item.scope === 'global' && (
