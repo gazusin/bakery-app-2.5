@@ -4,11 +4,12 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { PageHeader } from '@/components/page-header';
+import { AdvancedReportCards } from './AdvancedReportCards';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { FileText, Download, CalendarDays, Package, Calendar as CalendarIcon, DollarSign, Archive, Layers, BarChart2 as BarChartIconLucide, PieChart as PieChartIconLucide, Loader2, Shuffle, TrendingDown, Combine, Building, Eye, TrendingUp as TrendingUpIcon } from 'lucide-react'; 
+import { FileText, Download, CalendarDays, Package, Calendar as CalendarIcon, DollarSign, Archive, Layers, BarChart2 as BarChartIconLucide, PieChart as PieChartIconLucide, Loader2, Shuffle, TrendingDown, Combine, Building, Eye, TrendingUp as TrendingUpIcon } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter as UiDialogFooter, DialogClose } from '@/components/ui/dialog'; 
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter as UiDialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from "@/components/ui/calendar";
 import type { DateRange } from "react-day-picker";
@@ -147,17 +148,17 @@ export default function ReportsPage() {
     setIsLoading(false);
 
     const handleDataUpdate = (event: Event) => {
-        const customEvent = event as CustomEvent;
-        if (customEvent.detail?.key === KEYS.WEEKLY_LOSS_REPORTS) {
-            setWeeklyLossReports([...initialWeeklyLossReportsData]);
-        }
-        if (customEvent.detail?.key === KEYS.WEEKLY_PROFIT_REPORTS) {
-            setWeeklyProfitReports([...initialWeeklyProfitReportsData]);
-        }
+      const customEvent = event as CustomEvent;
+      if (customEvent.detail?.key === KEYS.WEEKLY_LOSS_REPORTS) {
+        setWeeklyLossReports([...initialWeeklyLossReportsData]);
+      }
+      if (customEvent.detail?.key === KEYS.WEEKLY_PROFIT_REPORTS) {
+        setWeeklyProfitReports([...initialWeeklyProfitReportsData]);
+      }
     };
     window.addEventListener('data-updated', handleDataUpdate);
     return () => {
-        window.removeEventListener('data-updated', handleDataUpdate);
+      window.removeEventListener('data-updated', handleDataUpdate);
     };
   }, []);
 
@@ -173,7 +174,7 @@ export default function ReportsPage() {
     let branchSuffix = '';
     const currentBranchId = getActiveBranchId();
     if (baseName.includes("gastos") || baseName.includes("stock") || baseName.includes("materia_prima") || baseName.includes("ordenes_compra") || baseName.includes("merma") || baseName.includes("perdidas")) {
-        if (currentBranchId) branchSuffix = `_${currentBranchId}`;
+      if (currentBranchId) branchSuffix = `_${currentBranchId}`;
     }
 
     if (selectedDateRange?.from) {
@@ -293,19 +294,19 @@ export default function ReportsPage() {
       acc[item.category] = { label: item.category, color: item.fill };
       return acc;
     }, {} as ChartConfig)
-  , [expensesChartData]);
+    , [expensesChartData]);
 
   const productStockChartData = useMemo(() => {
     if (!activeBranchIdState) return [];
     const productsForBranch = loadFromLocalStorageForBranch<Product[]>(KEYS.PRODUCTS, activeBranchIdState);
     return productsForBranch
-        .filter(p => p.stock > 0)
-        .sort((a,b) => b.stock - a.stock)
-        .slice(0, 10)
-        .map(product => ({
-            name: product.name,
-            stock: product.stock,
-        }));
+      .filter(p => p.stock > 0)
+      .sort((a, b) => b.stock - a.stock)
+      .slice(0, 10)
+      .map(product => ({
+        name: product.name,
+        stock: product.stock,
+      }));
   }, [activeBranchIdState]);
 
   const productStockChartConfig = {
@@ -316,13 +317,13 @@ export default function ReportsPage() {
     if (!activeBranchIdState) return [];
     const rawMaterialsForBranch = loadFromLocalStorageForBranch<RawMaterialInventoryItem[]>(KEYS.RAW_MATERIAL_INVENTORY, activeBranchIdState);
     return rawMaterialsForBranch
-        .filter(m => m.quantity > 0)
-        .sort((a,b) => b.quantity - a.quantity)
-        .slice(0, 10)
-        .map(material => ({
-            name: `${material.name} (${material.unit})`,
-            stock: parseFloat(material.quantity.toFixed(2)),
-        }));
+      .filter(m => m.quantity > 0)
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 10)
+      .map(material => ({
+        name: `${material.name} (${material.unit})`,
+        stock: parseFloat(material.quantity.toFixed(2)),
+      }));
   }, [activeBranchIdState]);
 
   const rawMaterialStockChartConfig = {
@@ -343,17 +344,17 @@ export default function ReportsPage() {
     }
     const ordersBySupplier: { [supplierName: string]: number } = {};
     filteredOrders.forEach(order => {
-        if (order.status === 'Pagado') {
-             ordersBySupplier[order.supplierName] = (ordersBySupplier[order.supplierName] || 0) + order.totalCost;
-        }
+      if (order.status === 'Pagado') {
+        ordersBySupplier[order.supplierName] = (ordersBySupplier[order.supplierName] || 0) + order.totalCost;
+      }
     });
     return Object.entries(ordersBySupplier)
       .map(([supplierName, totalCost]) => ({
         supplierName,
         totalCost: parseFloat(totalCost.toFixed(2)),
       }))
-      .sort((a,b) => b.totalCost - a.totalCost)
-      .slice(0,10);
+      .sort((a, b) => b.totalCost - a.totalCost)
+      .slice(0, 10);
   }, [selectedDateRange, activeBranchIdState]);
 
   const purchaseOrdersChartConfig = {
@@ -370,10 +371,10 @@ export default function ReportsPage() {
     let reportRangeEnd = selectedDateRange?.to ? endOfDay(selectedDateRange.to) : (selectedDateRange?.from ? endOfDay(selectedDateRange.from) : null);
 
     if (reportRangeStart && reportRangeEnd) {
-        filteredLogs = productionLogsForBranch.filter(log => {
-            const logDate = parseISO(log.date);
-            return isValid(logDate) && isWithinInterval(logDate, { start: reportRangeStart!, end: reportRangeEnd! });
-        });
+      filteredLogs = productionLogsForBranch.filter(log => {
+        const logDate = parseISO(log.date);
+        return isValid(logDate) && isWithinInterval(logDate, { start: reportRangeStart!, end: reportRangeEnd! });
+      });
     }
 
     let fixedWeeklyCostForPeriod = 0;
@@ -404,51 +405,51 @@ export default function ReportsPage() {
       return sum;
     }, 0);
 
-    const costPerSackForPeriod = totalSacksProducedInPeriod > 0 && totalOperatingCostForPeriod >=0 ? totalOperatingCostForPeriod / totalSacksProducedInPeriod : 0;
+    const costPerSackForPeriod = totalSacksProducedInPeriod > 0 && totalOperatingCostForPeriod >= 0 ? totalOperatingCostForPeriod / totalSacksProducedInPeriod : 0;
 
     const productWastageMap: { [productName: string]: ProductWastageData; } = {};
     filteredLogs.forEach(log => {
-        const recipe = recipesForBranch.find(r => r.name === log.product);
-        if (recipe && !recipe.isIntermediate) {
-            const wastageQuantityInThisLog = log.expectedQuantity - log.actualQuantity;
-            if (wastageQuantityInThisLog > 0) {
-                const costoIngredientesPorTanda = calculateDynamicRecipeCost(recipe.id, 'highest', recipesForBranch);
-                const costoIngredientesPorUnidad = (recipe.expectedYield && recipe.expectedYield > 0) ? costoIngredientesPorTanda / recipe.expectedYield : 0;
-                
-                let costoOperativoPorUnidad = 0;
-                if (recipe.expectedYield && recipe.expectedYield > 0 && costPerSackForPeriod >= 0) {
-                    costoOperativoPorUnidad = costPerSackForPeriod / recipe.expectedYield;
-                }
-                const costoTotalPorUnidadParaMerma = costoIngredientesPorUnidad + costoOperativoPorUnidad;
-                const wastageCostInThisLog = wastageQuantityInThisLog * costoTotalPorUnidadParaMerma;
+      const recipe = recipesForBranch.find(r => r.name === log.product);
+      if (recipe && !recipe.isIntermediate) {
+        const wastageQuantityInThisLog = log.expectedQuantity - log.actualQuantity;
+        if (wastageQuantityInThisLog > 0) {
+          const costoIngredientesPorTanda = calculateDynamicRecipeCost(recipe.id, 'highest', recipesForBranch);
+          const costoIngredientesPorUnidad = (recipe.expectedYield && recipe.expectedYield > 0) ? costoIngredientesPorTanda / recipe.expectedYield : 0;
 
-                if (!productWastageMap[log.product]) {
-                    productWastageMap[log.product] = {
-                        name: log.product, totalExpected: 0, totalActual: 0,
-                        totalWastageQuantity: 0, totalWastageCostUSD: 0,
-                        baseUnitPriceForWastage: costoTotalPorUnidadParaMerma
-                    };
-                }
-                productWastageMap[log.product].totalExpected += log.expectedQuantity;
-                productWastageMap[log.product].totalActual += log.actualQuantity;
-                productWastageMap[log.product].totalWastageQuantity += wastageQuantityInThisLog;
-                productWastageMap[log.product].totalWastageCostUSD += wastageCostInThisLog;
-                if (productWastageMap[log.product].baseUnitPriceForWastage === undefined) {
-                     productWastageMap[log.product].baseUnitPriceForWastage = costoTotalPorUnidadParaMerma;
-                 }
-            }
+          let costoOperativoPorUnidad = 0;
+          if (recipe.expectedYield && recipe.expectedYield > 0 && costPerSackForPeriod >= 0) {
+            costoOperativoPorUnidad = costPerSackForPeriod / recipe.expectedYield;
+          }
+          const costoTotalPorUnidadParaMerma = costoIngredientesPorUnidad + costoOperativoPorUnidad;
+          const wastageCostInThisLog = wastageQuantityInThisLog * costoTotalPorUnidadParaMerma;
+
+          if (!productWastageMap[log.product]) {
+            productWastageMap[log.product] = {
+              name: log.product, totalExpected: 0, totalActual: 0,
+              totalWastageQuantity: 0, totalWastageCostUSD: 0,
+              baseUnitPriceForWastage: costoTotalPorUnidadParaMerma
+            };
+          }
+          productWastageMap[log.product].totalExpected += log.expectedQuantity;
+          productWastageMap[log.product].totalActual += log.actualQuantity;
+          productWastageMap[log.product].totalWastageQuantity += wastageQuantityInThisLog;
+          productWastageMap[log.product].totalWastageCostUSD += wastageCostInThisLog;
+          if (productWastageMap[log.product].baseUnitPriceForWastage === undefined) {
+            productWastageMap[log.product].baseUnitPriceForWastage = costoTotalPorUnidadParaMerma;
+          }
         }
+      }
     });
 
     return Object.values(productWastageMap)
-        .sort((a, b) => b.totalWastageCostUSD - a.totalWastageCostUSD);
+      .sort((a, b) => b.totalWastageCostUSD - a.totalWastageCostUSD);
   }, [selectedDateRange, activeBranchIdState]);
 
   const productWastageChartData = useMemo(() => {
     return wastageReportFullData.slice(0, TOP_N_WASTAGE_PRODUCTS_REPORTS).map(item => ({
-        name: item.name,
-        wastageCostUSD: parseFloat(item.totalWastageCostUSD.toFixed(2)),
-        wastageQuantity: item.totalWastageQuantity
+      name: item.name,
+      wastageCostUSD: parseFloat(item.totalWastageCostUSD.toFixed(2)),
+      wastageQuantity: item.totalWastageQuantity
     }));
   }, [wastageReportFullData]);
 
@@ -498,7 +499,7 @@ export default function ReportsPage() {
         if (recipeDetails && !recipeDetails.isIntermediate) return sum + (log.batchSizeMultiplier || 0);
         return sum;
       }, 0);
-    const costPerSackForPeriod = totalSacksProducedInPeriod > 0 && totalOperatingCostForPeriod >=0 ? totalOperatingCostForPeriod / totalSacksProducedInPeriod : 0;
+    const costPerSackForPeriod = totalSacksProducedInPeriod > 0 && totalOperatingCostForPeriod >= 0 ? totalOperatingCostForPeriod / totalSacksProducedInPeriod : 0;
 
 
     filteredSales.forEach(sale => {
@@ -526,12 +527,12 @@ export default function ReportsPage() {
             lossesMap[sample.productName].quantitySampled += sample.quantity;
             const recipe = recipesForBranch.find(r => r.name === sample.productName);
             if (recipe) {
-                const costOfIngredientsPerTanda = calculateDynamicRecipeCost(recipe.id, 'highest', recipesForBranch);
-                const costOfIngredientsPerUnit = (recipe.expectedYield && recipe.expectedYield > 0) ? costOfIngredientsPerTanda / recipe.expectedYield : 0;
-                const operatingCostPerUnit = (recipe.expectedYield && recipe.expectedYield > 0 && costPerSackForPeriod >= 0) ? costPerSackForPeriod / recipe.expectedYield : 0;
-                const packagingCostPerUnit = calculatePackagingCost(1).maxCost;
-                const totalCostPerUnitSampled = costOfIngredientsPerUnit + operatingCostPerUnit + packagingCostPerUnit;
-                lossesMap[sample.productName].costSampledUSD += sample.quantity * totalCostPerUnitSampled;
+              const costOfIngredientsPerTanda = calculateDynamicRecipeCost(recipe.id, 'highest', recipesForBranch);
+              const costOfIngredientsPerUnit = (recipe.expectedYield && recipe.expectedYield > 0) ? costOfIngredientsPerTanda / recipe.expectedYield : 0;
+              const operatingCostPerUnit = (recipe.expectedYield && recipe.expectedYield > 0 && costPerSackForPeriod >= 0) ? costPerSackForPeriod / recipe.expectedYield : 0;
+              const packagingCostPerUnit = calculatePackagingCost(1).maxCost;
+              const totalCostPerUnitSampled = costOfIngredientsPerUnit + operatingCostPerUnit + packagingCostPerUnit;
+              lossesMap[sample.productName].costSampledUSD += sample.quantity * totalCostPerUnitSampled;
             }
           }
         });
@@ -551,8 +552,8 @@ export default function ReportsPage() {
       totalQuantityLost: item.quantityChanged + item.quantityWasted + item.quantitySampled,
       totalCostLostUSD: item.costChangedUSD + item.costWastedUSD + item.costSampledUSD,
     }))
-    .sort((a, b) => b.totalCostLostUSD - a.totalCostLostUSD)
-    .slice(0, TOP_N_LOSSES_REPORTS);
+      .sort((a, b) => b.totalCostLostUSD - a.totalCostLostUSD)
+      .slice(0, TOP_N_LOSSES_REPORTS);
 
   }, [selectedDateRange, wastageReportFullData, activeBranchIdState]);
 
@@ -651,7 +652,7 @@ export default function ReportsPage() {
     });
 
     for (const name in productChangesMap) {
-        productChangesAggregated.push({ name, quantity: productChangesMap[name].quantity, costUSD: productChangesMap[name].costUSD });
+      productChangesAggregated.push({ name, quantity: productChangesMap[name].quantity, costUSD: productChangesMap[name].costUSD });
     }
     const productChangesList = productChangesAggregated.sort((a, b) => b.costUSD - a.costUSD);
 
@@ -680,10 +681,10 @@ export default function ReportsPage() {
     const totalQuantity = productChangesList.reduce((sum, item) => sum + item.quantity, 0);
     const totalCost = productChangesList.reduce((sum, item) => sum + item.costUSD, 0);
     body.push([
-        { content: "TOTALES", styles: { fontStyle: 'bold', halign: 'right' } },
-        { content: totalQuantity, styles: { fontStyle: 'bold' } },
-        { content: `$${totalCost.toFixed(2)}`, styles: { fontStyle: 'bold' } },
-        { content: formatVesPrice(totalCost), styles: { fontStyle: 'bold' } },
+      { content: "TOTALES", styles: { fontStyle: 'bold', halign: 'right' } },
+      { content: totalQuantity, styles: { fontStyle: 'bold' } },
+      { content: `$${totalCost.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+      { content: formatVesPrice(totalCost), styles: { fontStyle: 'bold' } },
     ]);
 
     doc.autoTable({
@@ -886,11 +887,11 @@ export default function ReportsPage() {
     const totalWastageQty = wastageReportFullData.reduce((sum, item) => sum + item.totalWastageQuantity, 0);
     const totalWastageCost = wastageReportFullData.reduce((sum, item) => sum + item.totalWastageCostUSD, 0);
     body.push([
-        { content: "TOTALES", colSpan: 3, styles: { fontStyle: 'bold', halign: 'right' } },
-        { content: totalWastageQty, styles: { fontStyle: 'bold' } },
-        { content: "", styles: { fontStyle: 'bold' } }, // Empty for unit cost
-        { content: `$${totalWastageCost.toFixed(2)}`, styles: { fontStyle: 'bold' } },
-        { content: formatVesPrice(totalWastageCost), styles: { fontStyle: 'bold' } },
+      { content: "TOTALES", colSpan: 3, styles: { fontStyle: 'bold', halign: 'right' } },
+      { content: totalWastageQty, styles: { fontStyle: 'bold' } },
+      { content: "", styles: { fontStyle: 'bold' } }, // Empty for unit cost
+      { content: `$${totalWastageCost.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+      { content: formatVesPrice(totalWastageCost), styles: { fontStyle: 'bold' } },
     ]);
 
     doc.autoTable({
@@ -939,15 +940,15 @@ export default function ReportsPage() {
     const grandTotalCostLost = productLossesData.reduce((sum, item) => sum + item.totalCostLostUSD, 0);
 
     body.push([
-        { content: "TOTALES", styles: { fontStyle: 'bold', halign: 'right' } },
-        { content: totalQuantityChanged, styles: { fontStyle: 'bold' } },
-        { content: `$${totalCostChanged.toFixed(2)}`, styles: { fontStyle: 'bold' } },
-        { content: totalQuantityWasted, styles: { fontStyle: 'bold' } },
-        { content: `$${totalCostWasted.toFixed(2)}`, styles: { fontStyle: 'bold' } },
-        { content: totalQuantitySampled, styles: { fontStyle: 'bold' } },
-        { content: `$${totalCostSampled.toFixed(2)}`, styles: { fontStyle: 'bold' } },
-        { content: grandTotalQuantityLost, styles: { fontStyle: 'bold' } },
-        { content: `$${grandTotalCostLost.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+      { content: "TOTALES", styles: { fontStyle: 'bold', halign: 'right' } },
+      { content: totalQuantityChanged, styles: { fontStyle: 'bold' } },
+      { content: `$${totalCostChanged.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+      { content: totalQuantityWasted, styles: { fontStyle: 'bold' } },
+      { content: `$${totalCostWasted.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+      { content: totalQuantitySampled, styles: { fontStyle: 'bold' } },
+      { content: `$${totalCostSampled.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+      { content: grandTotalQuantityLost, styles: { fontStyle: 'bold' } },
+      { content: `$${grandTotalCostLost.toFixed(2)}`, styles: { fontStyle: 'bold' } },
     ]);
 
     doc.autoTable({
@@ -956,7 +957,7 @@ export default function ReportsPage() {
     doc.save(getReportFilename("reporte_perdidas_totales"));
     toast({ title: "Reporte de Pérdidas Generado", description: `Se generó un PDF con el resumen de pérdidas de la sede ${activeBranchName}.`, duration: 5000, });
   };
-  
+
   const handleDownloadDetailedLossReportPDF = (report: WeeklyLossReport) => {
     const doc = new jsPDF("landscape") as jsPDFWithAutoTable;
     doc.setFontSize(18);
@@ -979,8 +980,8 @@ export default function ReportsPage() {
       `$${entry.totalCostUSD.toFixed(2)}`
     ]);
     body.push([
-        { content: "TOTAL PÉRDIDA SEMANAL", colSpan: 7, styles: { fontStyle: 'bold', halign: 'right' } },
-        { content: `$${report.totalLossUSD.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+      { content: "TOTAL PÉRDIDA SEMANAL", colSpan: 7, styles: { fontStyle: 'bold', halign: 'right' } },
+      { content: `$${report.totalLossUSD.toFixed(2)}`, styles: { fontStyle: 'bold' } },
     ]);
 
     doc.autoTable({
@@ -989,9 +990,9 @@ export default function ReportsPage() {
 
     doc.save(`reporte_perdida_semanal_${format(parseISO(report.weekEndDate), "yyyy-MM-dd")}.pdf`);
     toast({ title: "Reporte de Pérdida Detallado Generado", description: "PDF descargado.", duration: 5000 });
-};
+  };
 
-const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
+  const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
     const doc = new jsPDF("landscape") as jsPDFWithAutoTable;
     doc.setFontSize(18);
     doc.text("Panificadora Valladares", 14, 20);
@@ -1015,36 +1016,36 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
 
     // Totals footer row
     body.push([
-        { content: "TOTALES", colSpan: 7, styles: { fontStyle: 'bold', halign: 'right' } },
-        { content: `$${report.totalProfitUSD.toFixed(2)}`, styles: { fontStyle: 'bold', fillColor: [230, 245, 230] } },
+      { content: "TOTALES", colSpan: 7, styles: { fontStyle: 'bold', halign: 'right' } },
+      { content: `$${report.totalProfitUSD.toFixed(2)}`, styles: { fontStyle: 'bold', fillColor: [230, 245, 230] } },
     ]);
 
     // Summary below the table
     let finalY = (doc as any).lastAutoTable.finalY || 50;
     const addSummaryText = (label: string, value: string, yOffset: number) => {
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "bold");
-        doc.text(label, 14, finalY + yOffset);
-        doc.setFont("helvetica", "normal");
-        doc.text(value, 50, finalY + yOffset);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.text(label, 14, finalY + yOffset);
+      doc.setFont("helvetica", "normal");
+      doc.text(value, 50, finalY + yOffset);
     };
 
     doc.autoTable({
       startY: 50, head: head, body: body, theme: 'striped', headStyles: { fillColor: [34, 139, 34], fontSize: 10 }, bodyStyles: { fontSize: 9 },
       didDrawPage: (data) => {
-          finalY = data.cursor?.y ?? 50;
+        finalY = data.cursor?.y ?? 50;
       }
     });
 
     finalY = (doc as any).lastAutoTable.finalY + 10;
-    
+
     addSummaryText("Ingresos Totales (USD):", `$${report.totalRevenueUSD.toFixed(2)}`, 0);
     addSummaryText("Costos Totales (USD):", `$${report.totalCostsUSD.toFixed(2)}`, 6);
     addSummaryText("Ganancia Neta (USD):", `$${report.totalProfitUSD.toFixed(2)}`, 12);
 
     doc.save(`reporte_ganancia_semanal_${format(parseISO(report.weekEndDate), "yyyy-MM-dd")}.pdf`);
     toast({ title: "Reporte de Ganancia Detallado Generado", description: "PDF descargado.", duration: 5000 });
-};
+  };
 
 
 
@@ -1060,91 +1061,91 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
         description={`Información de rendimiento. Ventas y Cambios son globales. Inventarios, Producción, OCs, Merma, Pérdidas y Gastos se muestran para la Sede Actual: ${activeBranchName}.`}
         icon={FileText}
         actions={
-            <Button variant="outline" onClick={() => setIsDateRangeDialogOpen(true)}>
-                <CalendarDays className="mr-2 h-4 w-4" />
-                Seleccionar Rango de Fechas
-            </Button>
+          <Button variant="outline" onClick={() => setIsDateRangeDialogOpen(true)}>
+            <CalendarDays className="mr-2 h-4 w-4" />
+            Seleccionar Rango de Fechas
+          </Button>
         }
       />
-        {selectedDateRange?.from && (
-            <Card className="shadow-sm border-dashed border-primary">
-                <CardContent className="p-3 text-center">
-                    <p className="text-sm text-primary font-medium">
-                        Rango de fechas activo para reportes (Ventas, Gastos, OC, Cambios, Merma, Pérdidas):
-                        {format(selectedDateRange.from, "dd/MM/yyyy", { locale: es })}
-                        {selectedDateRange.to && ` - ${format(selectedDateRange.to, "dd/MM/yyyy", { locale: es })}`}
-                    </p>
-                </CardContent>
-            </Card>
-        )}
-        
+      {selectedDateRange?.from && (
+        <Card className="shadow-sm border-dashed border-primary">
+          <CardContent className="p-3 text-center">
+            <p className="text-sm text-primary font-medium">
+              Rango de fechas activo para reportes (Ventas, Gastos, OC, Cambios, Merma, Pérdidas):
+              {format(selectedDateRange.from, "dd/MM/yyyy", { locale: es })}
+              {selectedDateRange.to && ` - ${format(selectedDateRange.to, "dd/MM/yyyy", { locale: es })}`}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="shadow-lg">
-            <CardHeader>
-              <CardTitle>Historial de Reportes de Pérdida Semanal</CardTitle>
-              <CardDescription>Reportes detallados de todas las pérdidas (merma, cambios, muestras) generados automáticamente cada domingo.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {weeklyLossReports.length > 0 ? (
-                <Table>
-                  <TableHeader><TableRow><TableHead>Semana del</TableHead><TableHead className="text-right">Pérdida Total (USD)</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
-                  <TableBody>
-                    {weeklyLossReports.map(report => (
-                      <TableRow key={report.id}>
-                        <TableCell>
-                          <div className="font-medium">{format(parseISO(report.weekStartDate), "dd MMM yyyy", { locale: es })} - {format(parseISO(report.weekEndDate), "dd MMM yyyy", { locale: es })}</div>
-                          <div className="text-sm text-muted-foreground">Generado: {format(parseISO(report.generatedOn), "dd/MM/yy HH:mm", { locale: es })}</div>
-                        </TableCell>
-                        <TableCell className="text-right text-destructive font-semibold">${report.totalLossUSD.toFixed(2)}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="outline" size="sm" onClick={() => { setSelectedLossReport(report); setIsLossReportDialogOpen(true); }}>
-                            <Eye className="mr-2 h-4 w-4" />Ver Detalles
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (<p className="text-center text-muted-foreground py-8">No se han generado reportes semanales de pérdidas.</p>)}
-            </CardContent>
-          </Card>
-          <Card className="shadow-lg">
-            <CardHeader>
-              <CardTitle>Historial de Reportes de Ganancia Semanal</CardTitle>
-              <CardDescription>Reportes detallados de la ganancia estimada generados automáticamente cada domingo.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {weeklyProfitReports.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Semana del</TableHead>
-                      <TableHead className="text-right">Ingresos Totales (USD)</TableHead>
-                      <TableHead className="text-right">Ganancia Total (USD)</TableHead>
-                      <TableHead className="text-right">Acciones</TableHead>
+        <Card className="shadow-lg">
+          <CardHeader>
+            <CardTitle>Historial de Reportes de Pérdida Semanal</CardTitle>
+            <CardDescription>Reportes detallados de todas las pérdidas (merma, cambios, muestras) generados automáticamente cada domingo.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {weeklyLossReports.length > 0 ? (
+              <Table>
+                <TableHeader><TableRow><TableHead>Semana del</TableHead><TableHead className="text-right">Pérdida Total (USD)</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {weeklyLossReports.map(report => (
+                    <TableRow key={report.id}>
+                      <TableCell>
+                        <div className="font-medium">{format(parseISO(report.weekStartDate), "dd MMM yyyy", { locale: es })} - {format(parseISO(report.weekEndDate), "dd MMM yyyy", { locale: es })}</div>
+                        <div className="text-sm text-muted-foreground">Generado: {format(parseISO(report.generatedOn), "dd/MM/yy HH:mm", { locale: es })}</div>
+                      </TableCell>
+                      <TableCell className="text-right text-destructive font-semibold">${report.totalLossUSD.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="outline" size="sm" onClick={() => { setSelectedLossReport(report); setIsLossReportDialogOpen(true); }}>
+                          <Eye className="mr-2 h-4 w-4" />Ver Detalles
+                        </Button>
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {weeklyProfitReports.map(report => (
-                      <TableRow key={report.id}>
-                        <TableCell>
-                          <div className="font-medium">{format(parseISO(report.weekStartDate), "dd MMM yyyy", { locale: es })} - {format(parseISO(report.weekEndDate), "dd MMM yyyy", { locale: es })}</div>
-                          <div className="text-sm text-muted-foreground">Generado: {format(parseISO(report.generatedOn), "dd/MM/yy HH:mm", { locale: es })}</div>
-                        </TableCell>
-                        <TableCell className="text-right">${report.totalRevenueUSD.toFixed(2)}</TableCell>
-                        <TableCell className="text-right text-green-600 font-semibold">${report.totalProfitUSD.toFixed(2)}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="outline" size="sm" onClick={() => { setSelectedProfitReport(report); setIsProfitReportDialogOpen(true); }}>
-                            <Eye className="mr-2 h-4 w-4" />Ver Detalles
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (<p className="text-center text-muted-foreground py-8">No se han generado reportes semanales de ganancias.</p>)}
-            </CardContent>
-          </Card>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (<p className="text-center text-muted-foreground py-8">No se han generado reportes semanales de pérdidas.</p>)}
+          </CardContent>
+        </Card>
+        <Card className="shadow-lg">
+          <CardHeader>
+            <CardTitle>Historial de Reportes de Ganancia Semanal</CardTitle>
+            <CardDescription>Reportes detallados de la ganancia estimada generados automáticamente cada domingo.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {weeklyProfitReports.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Semana del</TableHead>
+                    <TableHead className="text-right">Ingresos Totales (USD)</TableHead>
+                    <TableHead className="text-right">Ganancia Total (USD)</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {weeklyProfitReports.map(report => (
+                    <TableRow key={report.id}>
+                      <TableCell>
+                        <div className="font-medium">{format(parseISO(report.weekStartDate), "dd MMM yyyy", { locale: es })} - {format(parseISO(report.weekEndDate), "dd MMM yyyy", { locale: es })}</div>
+                        <div className="text-sm text-muted-foreground">Generado: {format(parseISO(report.generatedOn), "dd/MM/yy HH:mm", { locale: es })}</div>
+                      </TableCell>
+                      <TableCell className="text-right">${report.totalRevenueUSD.toFixed(2)}</TableCell>
+                      <TableCell className="text-right text-green-600 font-semibold">${report.totalProfitUSD.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="outline" size="sm" onClick={() => { setSelectedProfitReport(report); setIsProfitReportDialogOpen(true); }}>
+                          <Eye className="mr-2 h-4 w-4" />Ver Detalles
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (<p className="text-center text-muted-foreground py-8">No se han generado reportes semanales de ganancias.</p>)}
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -1157,8 +1158,8 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
             {productSalesQuantityChartData.length > 0 ? (
               <ChartContainer config={productSalesQuantityChartConfig} className="h-full w-full">
                 <BarChart data={productSalesQuantityChartData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tickMargin={10} fontSize={12}/><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12}/>
-                  <ChartTooltip content={<ChartTooltipContent indicator="dot" className="text-sm"/>} />
+                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12} />
+                  <ChartTooltip content={<ChartTooltipContent indicator="dot" className="text-sm" />} />
                   <Bar dataKey="quantity" fill="var(--color-quantity)" radius={4} nameKey="name" />
                 </BarChart>
               </ChartContainer>
@@ -1178,8 +1179,8 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
             {productChangesChartData.length > 0 ? (
               <ChartContainer config={productChangesChartConfig} className="h-full w-full">
                 <BarChart data={productChangesChartData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tickMargin={10} fontSize={12}/><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12}/>
-                  <ChartTooltip content={<ChartTooltipContent indicator="dot" className="text-sm"/>} />
+                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12} />
+                  <ChartTooltip content={<ChartTooltipContent indicator="dot" className="text-sm" />} />
                   <Bar dataKey="quantity" fill="var(--color-quantity)" radius={4} nameKey="name" />
                 </BarChart>
               </ChartContainer>
@@ -1199,7 +1200,7 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
             {productWastageChartData.length > 0 ? (
               <ChartContainer config={productWastageChartConfig} className="h-full w-full">
                 <BarChart data={productWastageChartData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickFormatter={(value) => `$${value}`} tickLine={false} axisLine={false} tickMargin={10} fontSize={12}/><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12}/>
+                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickFormatter={(value) => `$${value}`} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12} />
                   <ChartTooltip content={({ active, payload }) => { if (active && payload && payload.length) { const data = payload[0].payload; return (<div className="rounded-lg border bg-background p-2 shadow-sm text-sm"><div className="grid grid-cols-1 gap-1.5"><span className="font-medium">{data.name}</span><span className="text-muted-foreground">Costo Merma: <span className="font-semibold text-destructive">${data.wastageCostUSD.toFixed(2)}</span></span><span className="text-muted-foreground">Cant. Mermada: <span className="font-semibold">{data.wastageQuantity} unid.</span></span></div></div>); } return null; }} />
                   <Bar dataKey="wastageCostUSD" fill="var(--color-wastageCostUSD)" radius={4} nameKey="name" />
                 </BarChart>
@@ -1220,7 +1221,7 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
             {productLossesData.length > 0 ? (
               <ChartContainer config={productLossesChartConfig} className="h-full w-full">
                 <BarChart data={productLossesData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickFormatter={(value) => `$${value}`} tickLine={false} axisLine={false} tickMargin={10} fontSize={12}/><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12}/>
+                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickFormatter={(value) => `$${value}`} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} width={120} interval={0} fontSize={12} />
                   <ChartTooltip content={({ active, payload }) => {
                     if (active && payload && payload.length) {
                       const data = payload[0].payload;
@@ -1257,7 +1258,7 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
           <CardContent className="h-[300px]">
             {expensesChartData.length > 0 ? (
               <ChartContainer config={expensesChartConfig} className="h-full w-full">
-                <ResponsiveContainer width="100%" height="100%"><PieChart><ChartTooltip content={<ChartTooltipContent nameKey="category" hideLabel className="text-sm"/>} /><Pie data={expensesChartData} dataKey="total" nameKey="category" cx="50%" cy="50%" outerRadius={80} labelLine={false} label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => { const RADIAN = Math.PI / 180; const radius = innerRadius + (outerRadius - innerRadius) * 0.5; const x = cx + radius * Math.cos(-midAngle * RADIAN); const y = cy + radius * Math.sin(-midAngle * RADIAN); return (percent || 0) * 100 > 5 ? (<text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize={12}>{`${((percent || 0) * 100).toFixed(0)}%`}</text>) : null; }}>{expensesChartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.fill} />))}</Pie><ChartLegend content={<ChartLegendContent nameKey="category" className="text-sm"/>} /></PieChart></ResponsiveContainer>
+                <ResponsiveContainer width="100%" height="100%"><PieChart><ChartTooltip content={<ChartTooltipContent nameKey="category" hideLabel className="text-sm" />} /><Pie data={expensesChartData} dataKey="total" nameKey="category" cx="50%" cy="50%" outerRadius={80} labelLine={false} label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => { const RADIAN = Math.PI / 180; const radius = innerRadius + (outerRadius - innerRadius) * 0.5; const x = cx + radius * Math.cos(-midAngle * RADIAN); const y = cy + radius * Math.sin(-midAngle * RADIAN); return (percent || 0) * 100 > 5 ? (<text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize={12}>{`${((percent || 0) * 100).toFixed(0)}%`}</text>) : null; }}>{expensesChartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.fill} />))}</Pie><ChartLegend content={<ChartLegendContent nameKey="category" className="text-sm" />} /></PieChart></ResponsiveContainer>
               </ChartContainer>
             ) : (<p className="text-center text-muted-foreground py-8">No hay datos de gastos para el período y sede actual.</p>)}
           </CardContent>
@@ -1272,10 +1273,10 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
             <CardDescription>Top 10 productos con más stock en la sede actual.</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px]">
-             {productStockChartData.length > 0 ? (
+            {productStockChartData.length > 0 ? (
               <ChartContainer config={productStockChartConfig} className="h-full w-full">
                 <BarChart data={productStockChartData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} fontSize={12} width={120} interval={0} /><ChartTooltip content={<ChartTooltipContent className="text-sm"/>} /><Bar dataKey="stock" fill="var(--color-stock)" radius={4} />
+                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} fontSize={12} width={120} interval={0} /><ChartTooltip content={<ChartTooltipContent className="text-sm" />} /><Bar dataKey="stock" fill="var(--color-stock)" radius={4} />
                 </BarChart>
               </ChartContainer>
             ) : (<p className="text-center text-muted-foreground py-8">No hay productos en stock en la sede actual.</p>)}
@@ -1294,13 +1295,13 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
             {rawMaterialStockChartData.length > 0 ? (
               <ChartContainer config={rawMaterialStockChartConfig} className="h-full w-full">
                 <BarChart data={rawMaterialStockChartData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} fontSize={12} width={120} interval={0} /><ChartTooltip content={<ChartTooltipContent className="text-sm"/>} /><Bar dataKey="stock" fill="var(--color-stock)" radius={4} />
+                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} fontSize={12} width={120} interval={0} /><ChartTooltip content={<ChartTooltipContent className="text-sm" />} /><Bar dataKey="stock" fill="var(--color-stock)" radius={4} />
                 </BarChart>
               </ChartContainer>
             ) : (<p className="text-center text-muted-foreground py-8">No hay materia prima en inventario en la sede actual.</p>)}
           </CardContent>
           <CardFooter>
-             <Button className="w-full" onClick={handleDownloadRawMaterialInventoryReport}><Download className="mr-2 h-4 w-4" /> Descargar Materia Prima (Sede: {activeBranchName})</Button>
+            <Button className="w-full" onClick={handleDownloadRawMaterialInventoryReport}><Download className="mr-2 h-4 w-4" /> Descargar Materia Prima (Sede: {activeBranchName})</Button>
           </CardFooter>
         </Card>
 
@@ -1313,15 +1314,22 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
             {purchaseOrdersChartData.length > 0 ? (
               <ChartContainer config={purchaseOrdersChartConfig} className="h-full w-full">
                 <BarChart data={purchaseOrdersChartData} layout="vertical" margin={{ top: 5, right: 20, left: 30, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickFormatter={(value) => `$${value}`} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="supplierName" type="category" tickLine={false} axisLine={false} tickMargin={5} fontSize={12} width={120} interval={0} /><ChartTooltip content={<ChartTooltipContent className="text-sm"/>} /><Bar dataKey="totalCost" fill="var(--color-totalCost)" radius={4} />
+                  <CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tickFormatter={(value) => `$${value}`} tickLine={false} axisLine={false} tickMargin={10} fontSize={12} /><YAxis dataKey="supplierName" type="category" tickLine={false} axisLine={false} tickMargin={5} fontSize={12} width={120} interval={0} /><ChartTooltip content={<ChartTooltipContent className="text-sm" />} /><Bar dataKey="totalCost" fill="var(--color-totalCost)" radius={4} />
                 </BarChart>
               </ChartContainer>
             ) : (<p className="text-center text-muted-foreground py-8">No hay órdenes de compra pagadas para el período y sede actual.</p>)}
           </CardContent>
           <CardFooter>
-             <Button className="w-full" onClick={handleDownloadPurchaseOrdersReport}><Download className="mr-2 h-4 w-4" /> Descargar Órdenes Compra (Sede: {activeBranchName})</Button>
+            <Button className="w-full" onClick={handleDownloadPurchaseOrdersReport}><Download className="mr-2 h-4 w-4" /> Descargar Órdenes Compra (Sede: {activeBranchName})</Button>
           </CardFooter>
         </Card>
+
+        {/* Advanced Reports: Profitability & Customer Stats */}
+        <AdvancedReportCards
+          selectedDateRange={selectedDateRange}
+          activeBranchId={activeBranchIdState}
+          activeBranchName={activeBranchName}
+        />
       </div>
 
       <Dialog open={isDateRangeDialogOpen} onOpenChange={setIsDateRangeDialogOpen}>
@@ -1331,25 +1339,25 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
             <DialogDescription>Elige un rango para reportes. Los de Inventarios y Stock siempre muestran el estado actual.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4 justify-center">
-            <Calendar mode="range" selected={selectedDateRange} onSelect={setSelectedDateRange} locale={es} numberOfMonths={2}/>
+            <Calendar mode="range" selected={selectedDateRange} onSelect={setSelectedDateRange} locale={es} numberOfMonths={2} />
             {selectedDateRange?.from && (<p className="text-center text-sm text-muted-foreground">Rango: {format(selectedDateRange.from, "dd/MM/yyyy", { locale: es })}{selectedDateRange.to && ` - ${format(selectedDateRange.to, "dd/MM/yyyy", { locale: es })}`}</p>)}
           </div>
           <UiDialogFooter>
             <Button variant="outline" onClick={() => setSelectedDateRange(undefined)}>Limpiar Rango</Button>
-            <DialogClose asChild><Button onClick={() => { setIsDateRangeDialogOpen(false); if (selectedDateRange?.from) { toast({ title: "Rango Aplicado", description: `Reportes usarán este rango.`}); } else { toast({ title: "Rango Limpiado", description: `Reportes mostrarán todos los datos.`}); }}}>Aplicar y Cerrar</Button></DialogClose>
+            <DialogClose asChild><Button onClick={() => { setIsDateRangeDialogOpen(false); if (selectedDateRange?.from) { toast({ title: "Rango Aplicado", description: `Reportes usarán este rango.` }); } else { toast({ title: "Rango Limpiado", description: `Reportes mostrarán todos los datos.` }); } }}>Aplicar y Cerrar</Button></DialogClose>
           </UiDialogFooter>
         </DialogContent>
       </Dialog>
-      
+
       <Dialog open={isLossReportDialogOpen} onOpenChange={setIsLossReportDialogOpen}>
         <DialogContent className="sm:max-w-4xl max-h-[90vh]">
           <DialogHeader>
             <DialogTitle>Detalle del Reporte de Pérdida Semanal</DialogTitle>
             {selectedLossReport && (
-                <DialogDescription>
-                    Semana del {format(parseISO(selectedLossReport.weekStartDate), "dd MMM yyyy", { locale: es })} al {format(parseISO(selectedLossReport.weekEndDate), "dd MMM yyyy", { locale: es })}.
-                    Pérdida Total: <span className="font-bold text-destructive">${selectedLossReport.totalLossUSD.toFixed(2)}</span>.
-                </DialogDescription>
+              <DialogDescription>
+                Semana del {format(parseISO(selectedLossReport.weekStartDate), "dd MMM yyyy", { locale: es })} al {format(parseISO(selectedLossReport.weekEndDate), "dd MMM yyyy", { locale: es })}.
+                Pérdida Total: <span className="font-bold text-destructive">${selectedLossReport.totalLossUSD.toFixed(2)}</span>.
+              </DialogDescription>
             )}
           </DialogHeader>
           <div className="flex-1 min-h-0">
@@ -1387,7 +1395,7 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
           <UiDialogFooter>
             <Button variant="outline" onClick={() => setIsLossReportDialogOpen(false)}>Cerrar</Button>
             <Button onClick={() => selectedLossReport && handleDownloadDetailedLossReportPDF(selectedLossReport)} disabled={!selectedLossReport}>
-                <Download className="mr-2 h-4 w-4" /> Descargar PDF
+              <Download className="mr-2 h-4 w-4" /> Descargar PDF
             </Button>
           </UiDialogFooter>
         </DialogContent>
@@ -1398,14 +1406,14 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
           <DialogHeader>
             <DialogTitle>Detalle del Reporte de Ganancia Semanal</DialogTitle>
             {selectedProfitReport && (
-                <DialogDescription>
-                    <p>Semana del {format(parseISO(selectedProfitReport.weekStartDate), "dd MMM yyyy", { locale: es })} al {format(parseISO(selectedProfitReport.weekEndDate), "dd MMM yyyy", { locale: es })}.</p>
-                    <p>
-                        <span className="font-semibold">Ingresos Totales:</span> <span className="text-green-600">${selectedProfitReport.totalRevenueUSD.toFixed(2)}</span> | 
-                        <span className="font-semibold"> Costos Totales:</span> <span className="text-destructive">${selectedProfitReport.totalCostsUSD.toFixed(2)}</span> | 
-                        <span className="font-semibold"> Ganancia Neta:</span> <span className="font-bold text-primary">${selectedProfitReport.totalProfitUSD.toFixed(2)}</span>
-                    </p>
-                </DialogDescription>
+              <DialogDescription>
+                <p>Semana del {format(parseISO(selectedProfitReport.weekStartDate), "dd MMM yyyy", { locale: es })} al {format(parseISO(selectedProfitReport.weekEndDate), "dd MMM yyyy", { locale: es })}.</p>
+                <p>
+                  <span className="font-semibold">Ingresos Totales:</span> <span className="text-green-600">${selectedProfitReport.totalRevenueUSD.toFixed(2)}</span> |
+                  <span className="font-semibold"> Costos Totales:</span> <span className="text-destructive">${selectedProfitReport.totalCostsUSD.toFixed(2)}</span> |
+                  <span className="font-semibold"> Ganancia Neta:</span> <span className="font-bold text-primary">${selectedProfitReport.totalProfitUSD.toFixed(2)}</span>
+                </p>
+              </DialogDescription>
             )}
           </DialogHeader>
           <div className="flex-1 min-h-0">
@@ -1443,7 +1451,7 @@ const handleDownloadDetailedProfitReportPDF = (report: WeeklyProfitReport) => {
           <UiDialogFooter>
             <Button variant="outline" onClick={() => setIsProfitReportDialogOpen(false)}>Cerrar</Button>
             <Button onClick={() => selectedProfitReport && handleDownloadDetailedProfitReportPDF(selectedProfitReport)} disabled={!selectedProfitReport}>
-                <Download className="mr-2 h-4 w-4" /> Descargar PDF
+              <Download className="mr-2 h-4 w-4" /> Descargar PDF
             </Button>
           </UiDialogFooter>
         </DialogContent>
