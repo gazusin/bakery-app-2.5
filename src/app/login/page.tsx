@@ -99,14 +99,22 @@ export default function LoginPage() {
       return;
     }
 
-    // Compare credentials
-    if (sanitizedUsername === SIMULATED_ADMIN_USERNAME && sanitizedPassword === SIMULATED_USER_PASSWORD) {
+    // Import authentication function dynamically
+    const { authenticateUser, initializeUsers } = await import('@/lib/user-management');
+
+    // Initialize users if needed
+    initializeUsers();
+
+    // Authenticate with new system
+    const user = authenticateUser(sanitizedUsername, sanitizedPassword);
+
+    if (user) {
       // Successful login - reset rate limiter
       loginRateLimiter.reset(identifier);
 
       toast({
         title: "Inicio de Sesión Exitoso",
-        description: `¡Bienvenido de nuevo, Administrador!`,
+        description: `¡Bienvenido de nuevo, ${user.fullName}!`,
       });
 
       if (typeof window !== 'undefined') {
