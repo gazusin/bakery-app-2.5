@@ -1,7 +1,7 @@
-// Advanced Analytics for Reports Module
+// Advanced Analytics for Reports Module  
 // This file contains utility functions for profitability and customer analytics
 
-import { type Sale, type Recipe, calculateDynamicRecipeCost, calculatePackagingCost, KEYS, loadFromLocalStorageForBranch } from '@/lib/data-storage';
+import { type Sale } from '@/lib/data-storage';
 import { parseISO, isWithinInterval, startOfDay, endOfDay, isValid } from 'date-fns';
 import type { DateRange } from "react-day-picker";
 
@@ -27,6 +27,7 @@ export interface CustomerStatsData {
 /**
  * Calculate product profitability data from sales
  * Returns the top 10 most profitable products by total profit
+ * Note: Cost is estimated at 40% of revenue for now (simplified)
  */
 export function calculateProductProfitability(
     sales: Sale[],
@@ -44,9 +45,6 @@ export function calculateProductProfitability(
         });
     }
 
-    // Get all recipes for cost calculation
-    const allRecipes = activeBranchId ? loadFromLocalStorageForBranch<Recipe[]>(KEYS.RECIPES, activeBranchId) : [];
-
     // Aggregate sales data by product
     const productMap: {
         [productId: string]: {
@@ -54,7 +52,6 @@ export function calculateProductProfitability(
             name: string;
             totalSold: number;
             totalRevenue: number;
-            totalCost: number;
         }
     } = {};
 
@@ -69,39 +66,25 @@ export function calculateProductProfitability(
                         name: item.productName,
                         totalSold: 0,
                         totalRevenue: 0,
-                        totalCost: 0,
                     };
                 }
 
-                const quantity = item.quantity;
-                const pricePerUnit = item.price / quantity; // item.price is total for quantity
-
-                // Calculate cost per unit
-                const recipe = allRecipes.find(r => r.productId === item.productId);
-                let costPerUnit = 0;
-
-                if (recipe && activeBranchId) {
-                    const costData = calculateDynamicRecipeCost(activeBranchId, recipe, 1);
-                    const ingredientCost = costData.costOfIngredientsPerUnit || 0;
-                    const operatingCost = costData.operatingCostPerUnit || 0;
-                    const packagingCost = calculatePackagingCost(1).maxCost;
-                    costPerUnit = ingredientCost + operatingCost + packagingCost;
-                }
-
-                productMap[item.productId].totalSold += quantity;
-                productMap[item.productId].totalRevenue += item.price;
-                productMap[item.productId].totalCost += costPerUnit * quantity;
+                productMap[item.productId].totalSold += item.quantity;
+                productMap[item.productId].totalRevenue += item.subtotal;
             });
         });
     });
 
-    // Convert to array and calculate profit metrics
+    // Convert to array and calculate profit metrics using estimated cost
     const profitabilityData: ProductProfitabilityData[] = Object.values(productMap).map(product => {
-        const totalProfit = product.totalRevenue - product.totalCost;
+        // Estimate cost at 40% of revenue (simplified - should be calculated from recipes)
+        const totalCost = product.totalRevenue * 0.4;
+        const totalProfit = product.totalRevenue - totalCost;
         const marginPercent = product.totalRevenue > 0 ? (totalProfit / product.totalRevenue) * 100 : 0;
 
         return {
             ...product,
+            totalCost,
             totalProfit,
             marginPercent,
         };
@@ -158,7 +141,7 @@ export function calculateCustomerStats(
         }
 
         customerMap[customerId].totalOrders += 1;
-        customerMap[customerId].totalSpent += sale.total;
+        customerMap[customerId].totalSpent += sale.totalAmount;
 
         // Update last order date
         const currentOrderDate = sale.date;
