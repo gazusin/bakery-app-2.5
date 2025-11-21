@@ -1229,7 +1229,7 @@ export default function ReportsPage() {
     toast({ title: "Reporte Completo Generado", description: "Se ha descargado el reporte completo en Excel." });
   };
 
-  const handleDownloadWastageReport = () => {
+  const handleDownloadWastageReport = async () => {
     if (wastageReportFullData.length === 0) {
       toast({ title: "Sin Datos", description: `No hay datos de merma para el período y sede ${activeBranchName}.`, variant: "default" });
       return;
@@ -1241,39 +1241,59 @@ export default function ReportsPage() {
       reportPeriod = `${format(from, "dd/MM/yyyy", { locale: es })}${selectedDateRange.to ? ` - ${format(to, "dd/MM/yyyy", { locale: es })}` : ''}`;
     }
 
-    const doc = new jsPDF("landscape") as unknown as jsPDFWithAutoTable;
-    doc.setFontSize(18);
-    doc.text("Panificadora Valladares", 14, 20);
-    doc.setFontSize(12);
-    doc.text(`Reporte de Merma de Producción (Sede: ${activeBranchName})`, 14, 28);
-    doc.setFontSize(10);
-    doc.text(`Período: ${reportPeriod}`, 14, 36);
-    doc.text(`Tasa de Cambio (USD/VES): ${exchangeRate > 0 ? exchangeRate.toFixed(2) : 'No establecida'}`, 14, 42);
-    doc.text("Nota: Costo de merma incluye costo de ingredientes y operativos (basados en sede actual).", 14, 48);
+    try {
+      const chartElement = document.getElementById('wastage-chart');
+      const doc = new jsPDF("landscape") as unknown as jsPDFWithAutoTable;
 
-    const head = [["Producto", "Esperado", "Real", "Mermado", "Costo Unit. Merma (USD)", "Costo Merma (USD)", "Costo Merma (VES)"]];
-    const body: any[] = wastageReportFullData.map(item => [
-      item.name, item.totalExpected, item.totalActual, item.totalWastageQuantity,
-      `$${(item.baseUnitPriceForWastage || 0).toFixed(2)}`, `$${item.totalWastageCostUSD.toFixed(2)}`, formatVesPrice(item.totalWastageCostUSD)
-    ]);
-    const totalWastageQty = wastageReportFullData.reduce((sum, item) => sum + item.totalWastageQuantity, 0);
-    const totalWastageCost = wastageReportFullData.reduce((sum, item) => sum + item.totalWastageCostUSD, 0);
-    body.push([
-      { content: "TOTALES", colSpan: 3, styles: { fontStyle: 'bold', halign: 'right' } },
-      { content: totalWastageQty, styles: { fontStyle: 'bold' } },
-      { content: "", styles: { fontStyle: 'bold' } }, // Empty for unit cost
-      { content: `$${totalWastageCost.toFixed(2)}`, styles: { fontStyle: 'bold' } },
-      { content: formatVesPrice(totalWastageCost), styles: { fontStyle: 'bold' } },
-    ]);
+      doc.setFontSize(18);
+      doc.text("Panificadora Valladares", 14, 20);
+      doc.setFontSize(12);
+      doc.text(`Reporte de Merma de Producción (Sede: ${activeBranchName})`, 14, 28);
+      doc.setFontSize(10);
+      doc.text(`Período: ${reportPeriod}`, 14, 36);
+      doc.text(`Tasa de Cambio (USD/VES): ${exchangeRate > 0 ? exchangeRate.toFixed(2) : 'No establecida'}`, 14, 42);
+      doc.text("Nota: Costo de merma incluye costo de ingredientes y operativos (basados en sede actual).", 14, 48);
 
-    doc.autoTable({
-      startY: 56, head: head, body: body, theme: 'striped', headStyles: { fillColor: [224, 122, 95], fontSize: 10 }, bodyStyles: { fontSize: 9 },
-    });
-    doc.save(getReportFilename("reporte_merma_produccion"));
-    toast({ title: "Reporte de Merma Generado", description: `Se generó un PDF para la sede ${activeBranchName}.`, duration: 5000, });
+      let startY = 56;
+
+      // Add chart if element exists
+      if (chartElement && productWastageChartData.length > 0) {
+        const canvas = await html2canvas(chartElement, { scale: 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const imgWidth = 260;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        doc.addImage(imgData, 'PNG', 15, startY, imgWidth, imgHeight);
+        startY = startY + imgHeight + 10;
+      }
+
+      const head = [["Producto", "Esperado", "Real", "Mermado", "Costo Unit. Merma (USD)", "Costo Merma (USD)", "Costo Merma (VES)"]];
+      const body: any[] = wastageReportFullData.map(item => [
+        item.name, item.totalExpected, item.totalActual, item.totalWastageQuantity,
+        `$${(item.baseUnitPriceForWastage || 0).toFixed(2)}`, `$${item.totalWastageCostUSD.toFixed(2)}`, formatVesPrice(item.totalWastageCostUSD)
+      ]);
+      const totalWastageQty = wastageReportFullData.reduce((sum, item) => sum + item.totalWastageQuantity, 0);
+      const totalWastageCost = wastageReportFullData.reduce((sum, item) => sum + item.totalWastageCostUSD, 0);
+      body.push([
+        { content: "TOTALES", colSpan: 3, styles: { fontStyle: 'bold', halign: 'right' } },
+        { content: totalWastageQty, styles: { fontStyle: 'bold' } },
+        { content: "", styles: { fontStyle: 'bold' } }, // Empty for unit cost
+        { content: `$${totalWastageCost.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+        { content: formatVesPrice(totalWastageCost), styles: { fontStyle: 'bold' } },
+      ]);
+
+      doc.autoTable({
+        startY: startY, head: head, body: body, theme: 'striped', headStyles: { fillColor: [224, 122, 95], fontSize: 10 }, bodyStyles: { fontSize: 9 },
+      });
+
+      doc.save(getReportFilename("reporte_merma_produccion"));
+      toast({ title: "Reporte de Merma Generado", description: `Se generó un PDF para la sede ${activeBranchName}.`, duration: 5000, });
+    } catch (error) {
+      console.error("Error generating Wastage PDF:", error);
+      toast({ title: "Error", description: "No se pudo generar el PDF.", variant: "destructive" });
+    }
   };
 
-  const handleDownloadLossesReport = () => {
+  const handleDownloadLossesReport = async () => {
     if (productLossesData.length === 0 && wastageReportFullData.length === 0 && productChangesChartData.length === 0) {
       toast({ title: "Sin Datos", description: "No hay datos de pérdidas (merma, cambios o muestras) para el período y sede actual.", variant: "default" });
       return;
@@ -1285,49 +1305,69 @@ export default function ReportsPage() {
       reportPeriod = `${format(from, "dd/MM/yyyy", { locale: es })}${selectedDateRange.to ? ` - ${format(to, "dd/MM/yyyy", { locale: es })}` : ''}`;
     }
 
-    const doc = new jsPDF("landscape") as unknown as jsPDFWithAutoTable;
-    doc.setFontSize(18);
-    doc.text("Panificadora Valladares", 14, 20);
-    doc.setFontSize(12);
-    doc.text(`Reporte de Pérdidas Totales (Sede: ${activeBranchName})`, 14, 28);
-    doc.setFontSize(10);
-    doc.text(`Período: ${reportPeriod}`, 14, 36);
-    doc.text(`Tasa de Cambio (USD/VES): ${exchangeRate > 0 ? exchangeRate.toFixed(2) : 'No establecida'}`, 14, 42);
-    doc.text("Nota: Costo cambios/muestras/merma basados en costos de la sede actual.", 14, 48);
+    try {
+      const chartElement = document.getElementById('losses-chart');
+      const doc = new jsPDF("landscape") as unknown as jsPDFWithAutoTable;
 
-    const head = [["Producto", "Cant. Cambiada", "Costo Cambios (USD)", "Cant. Mermada", "Costo Merma (USD)", "Cant. Muestras", "Costo Muestras (USD)", "Cant. Total Perdida", "Costo Total Pérdida (USD)"]];
-    const body: any[] = productLossesData.map(item => [
-      item.name, item.quantityChanged, `$${item.costChangedUSD.toFixed(2)}`,
-      item.quantityWasted, `$${item.costWastedUSD.toFixed(2)}`,
-      item.quantitySampled, `$${item.costSampledUSD.toFixed(2)}`,
-      item.totalQuantityLost, `$${item.totalCostLostUSD.toFixed(2)}`,
-    ]);
-    const totalQuantityChanged = productLossesData.reduce((sum, item) => sum + item.quantityChanged, 0);
-    const totalCostChanged = productLossesData.reduce((sum, item) => sum + item.costChangedUSD, 0);
-    const totalQuantityWasted = productLossesData.reduce((sum, item) => sum + item.quantityWasted, 0);
-    const totalCostWasted = productLossesData.reduce((sum, item) => sum + item.costWastedUSD, 0);
-    const totalQuantitySampled = productLossesData.reduce((sum, item) => sum + item.quantitySampled, 0);
-    const totalCostSampled = productLossesData.reduce((sum, item) => sum + item.costSampledUSD, 0);
-    const grandTotalQuantityLost = productLossesData.reduce((sum, item) => sum + item.totalQuantityLost, 0);
-    const grandTotalCostLost = productLossesData.reduce((sum, item) => sum + item.totalCostLostUSD, 0);
+      doc.setFontSize(18);
+      doc.text("Panificadora Valladares", 14, 20);
+      doc.setFontSize(12);
+      doc.text(`Reporte de Pérdidas Totales (Sede: ${activeBranchName})`, 14, 28);
+      doc.setFontSize(10);
+      doc.text(`Período: ${reportPeriod}`, 14, 36);
+      doc.text(`Tasa de Cambio (USD/VES): ${exchangeRate > 0 ? exchangeRate.toFixed(2) : 'No establecida'}`, 14, 42);
+      doc.text("Nota: Costo cambios/muestras/merma basados en costos de la sede actual.", 14, 48);
 
-    body.push([
-      { content: "TOTALES", styles: { fontStyle: 'bold', halign: 'right' } },
-      { content: totalQuantityChanged, styles: { fontStyle: 'bold' } },
-      { content: `$${totalCostChanged.toFixed(2)}`, styles: { fontStyle: 'bold' } },
-      { content: totalQuantityWasted, styles: { fontStyle: 'bold' } },
-      { content: `$${totalCostWasted.toFixed(2)}`, styles: { fontStyle: 'bold' } },
-      { content: totalQuantitySampled, styles: { fontStyle: 'bold' } },
-      { content: `$${totalCostSampled.toFixed(2)}`, styles: { fontStyle: 'bold' } },
-      { content: grandTotalQuantityLost, styles: { fontStyle: 'bold' } },
-      { content: `$${grandTotalCostLost.toFixed(2)}`, styles: { fontStyle: 'bold' } },
-    ]);
+      let startY = 56;
 
-    doc.autoTable({
-      startY: 56, head: head, body: body, theme: 'striped', headStyles: { fillColor: [224, 122, 95], fontSize: 10 }, bodyStyles: { fontSize: 9 },
-    });
-    doc.save(getReportFilename("reporte_perdidas_totales"));
-    toast({ title: "Reporte de Pérdidas Generado", description: `Se generó un PDF con el resumen de pérdidas de la sede ${activeBranchName}.`, duration: 5000, });
+      // Add chart if element exists
+      if (chartElement && productLossesData.length > 0) {
+        const canvas = await html2canvas(chartElement, { scale: 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const imgWidth = 260;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        doc.addImage(imgData, 'PNG', 15, startY, imgWidth, imgHeight);
+        startY = startY + imgHeight + 10;
+      }
+
+      const head = [["Producto", "Cant. Cambiada", "Costo Cambios (USD)", "Cant. Mermada", "Costo Merma (USD)", "Cant. Muestras", "Costo Muestras (USD)", "Cant. Total Perdida", "Costo Total Pérdida (USD)"]];
+      const body: any[] = productLossesData.map(item => [
+        item.name, item.quantityChanged, `$${item.costChangedUSD.toFixed(2)}`,
+        item.quantityWasted, `$${item.costWastedUSD.toFixed(2)}`,
+        item.quantitySampled, `$${item.costSampledUSD.toFixed(2)}`,
+        item.totalQuantityLost, `$${item.totalCostLostUSD.toFixed(2)}`,
+      ]);
+      const totalQuantityChanged = productLossesData.reduce((sum, item) => sum + item.quantityChanged, 0);
+      const totalCostChanged = productLossesData.reduce((sum, item) => sum + item.costChangedUSD, 0);
+      const totalQuantityWasted = productLossesData.reduce((sum, item) => sum + item.quantityWasted, 0);
+      const totalCostWasted = productLossesData.reduce((sum, item) => sum + item.costWastedUSD, 0);
+      const totalQuantitySampled = productLossesData.reduce((sum, item) => sum + item.quantitySampled, 0);
+      const totalCostSampled = productLossesData.reduce((sum, item) => sum + item.costSampledUSD, 0);
+      const grandTotalQuantityLost = productLossesData.reduce((sum, item) => sum + item.totalQuantityLost, 0);
+      const grandTotalCostLost = productLossesData.reduce((sum, item) => sum + item.totalCostLostUSD, 0);
+
+      body.push([
+        { content: "TOTALES", styles: { fontStyle: 'bold', halign: 'right' } },
+        { content: totalQuantityChanged, styles: { fontStyle: 'bold' } },
+        { content: `$${totalCostChanged.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+        { content: totalQuantityWasted, styles: { fontStyle: 'bold' } },
+        { content: `$${totalCostWasted.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+        { content: totalQuantitySampled, styles: { fontStyle: 'bold' } },
+        { content: `$${totalCostSampled.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+        { content: grandTotalQuantityLost, styles: { fontStyle: 'bold' } },
+        { content: `$${grandTotalCostLost.toFixed(2)}`, styles: { fontStyle: 'bold' } },
+      ]);
+
+      doc.autoTable({
+        startY: startY, head: head, body: body, theme: 'striped', headStyles: { fillColor: [224, 122, 95], fontSize: 10 }, bodyStyles: { fontSize: 9 },
+      });
+
+      doc.save(getReportFilename("reporte_perdidas_totales"));
+      toast({ title: "Reporte de Pérdidas Generado", description: `Se generó un PDF con el resumen de pérdidas de la sede ${activeBranchName}.`, duration: 5000, });
+    } catch (error) {
+      console.error("Error generating Losses PDF:", error);
+      toast({ title: "Error", description: "No se pudo generar el PDF.", variant: "destructive" });
+    }
   };
 
   const handleDownloadDetailedLossReportPDF = (report: WeeklyLossReport) => {
