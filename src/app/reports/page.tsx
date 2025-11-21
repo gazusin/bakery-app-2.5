@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { PageHeader } from '@/components/page-header';
-import { AdvancedReportCards } from './AdvancedReportCards';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FileText, Download, CalendarDays, Package, Calendar as CalendarIcon, DollarSign, Archive, Layers, BarChart2 as BarChartIconLucide, PieChart as PieChartIconLucide, Loader2, Shuffle, TrendingDown, Combine, Building, Eye, TrendingUp as TrendingUpIcon, FileSpreadsheet } from 'lucide-react';
@@ -49,7 +48,6 @@ import {
   weeklyProfitReportsData as initialWeeklyProfitReportsData,
   type WeeklyProfitReport,
   type ProductionLogEntry,
-  RawMaterial
 } from '@/lib/data-storage';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -77,7 +75,7 @@ import {
 } from "@/components/ui/chart";
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { FormattedNumber } from '@/components/ui/formatted-number';
-import AdvancedReportCards from './AdvancedReportCards';
+import { AdvancedReportCards } from './AdvancedReportCards';
 import { InsightsPanel } from './InsightsPanel';
 import { ComparisonCard } from './ComparisonCard';
 import {
@@ -186,6 +184,64 @@ export default function ReportsPage() {
       window.removeEventListener('data-updated', handleDataUpdate);
     };
   }, []);
+
+  // Calcular métricas de comparación cuando cambia el rango de fechas o el tipo de comparación
+  useEffect(() => {
+    if (!selectedDateRange?.from || !comparisonEnabled || !activeBranchIdState) {
+      setComparisonMetrics(null);
+      setInsights([]);
+      return;
+    }
+
+    const currentPeriod = {
+      from: startOfDay(selectedDateRange.from),
+      to: selectedDateRange.to ? endOfDay(selectedDateRange.to) : endOfDay(selectedDateRange.from)
+    };
+
+    const previousPeriod = getComparisonPeriodDates(currentPeriod, comparisonType);
+
+    // Filtrar ventas para período actual y anterior
+    const currentSales = initialSalesDataGlobal.filter(sale => {
+      const saleDate = parseISO(sale.date);
+      return isValid(saleDate) && isWithinInterval(saleDate, { start: currentPeriod.from, end: currentPeriod.to });
+    });
+
+    const previousSales = initialSalesDataGlobal.filter(sale => {
+      const saleDate = parseISO(sale.date);
+      return isValid(saleDate) && isWithinInterval(saleDate, { start: previousPeriod.from, end: previousPeriod.to });
+    });
+
+    // Filtrar gastos para período actual y anterior
+    const branchExpenses = loadFromLocalStorageForBranch<Expense[]>(KEYS.EXPENSES, activeBranchIdState);
+    const currentExpenses = branchExpenses.filter(expense => {
+      const expenseDate = parseISO(expense.date);
+      return isValid(expenseDate) && isWithinInterval(expenseDate, { start: currentPeriod.from, end: currentPeriod.to });
+    });
+
+    const previousExpenses = branchExpenses.filter(expense => {
+      const expenseDate = parseISO(expense.date);
+      return isValid(expenseDate) && isWithinInterval(expenseDate, { start: previousPeriod.from, end: previousPeriod.to });
+    });
+
+    // Calcular comparaciones
+    const salesComparison = calculateSalesComparison(currentSales, previousSales);
+    const expensesComparison = calculateExpensesComparison(currentExpenses, previousExpenses);
+
+    const allComparisonMetrics: AllComparisonMetrics = {
+      sales: salesComparison,
+      expenses: expensesComparison,
+      comparisonType,
+      currentPeriod,
+      previousPeriod
+    };
+
+    setComparisonMetrics(allComparisonMetrics);
+
+    // Generar insights
+    const generatedInsights = generateInsights(allComparisonMetrics);
+    setInsights(generatedInsights);
+
+  }, [selectedDateRange, comparisonEnabled, comparisonType, activeBranchIdState]);
 
   const formatVesPrice = (usdPrice: number): string => {
     if (exchangeRate > 0 && usdPrice) {
@@ -1515,6 +1571,113 @@ export default function ReportsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Controles de Análisis Comparativo */}
+      {selectedDateRange?.from && (
+        <Card className="shadow-lg">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUpIcon className="h-5 w-5" />
+                  Análisis Comparativo
+                </CardTitle>
+                <CardDescription>
+                  Compara el rendimiento actual con períodos anteriores
+                </CardDescription>
+              </div>
+              <Button
+                variant={comparisonEnabled ? "default" : "outline"}
+                size="sm"
+                onClick={() => setComparisonEnabled(!comparisonEnabled)}
+              >
+                {comparisonEnabled ? "Activado" : "Activar"}
+              </Button>
+            </div>
+          </CardHeader>
+          {comparisonEnabled && (
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Button
+                  variant={comparisonType === 'previous' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setComparisonType('previous')}
+                  className="flex-1"
+                >
+                  Período Anterior
+                </Button>
+                <Button
+                  variant={comparisonType === 'yearOverYear' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setComparisonType('yearOverYear')}
+                  className="flex-1"
+                >
+                  Año Anterior
+                </Button>
+              </div>
+              {comparisonMetrics && (
+                <p className="text-sm text-muted-foreground text-center">
+                  Comparando {format(comparisonMetrics.currentPeriod.from, "dd/MM/yy", { locale: es })}
+                  {' - '}
+                  {format(comparisonMetrics.currentPeriod.to, "dd/MM/yy", { locale: es })}
+                  {' vs '}
+                  {format(comparisonMetrics.previousPeriod.from, "dd/MM/yy", { locale: es })}
+                  {' - '}
+                  {format(comparisonMetrics.previousPeriod.to, "dd/MM/yy", { locale: es })}
+                </p>
+              )}
+            </CardContent>
+          )}
+        </Card>
+      )}
+
+      {/* Tarjetas de Comparación */}
+      {comparisonEnabled && comparisonMetrics && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <ComparisonCard
+            title="Ingresos Totales"
+            current={comparisonMetrics.sales.totalRevenue.current}
+            previous={comparisonMetrics.sales.totalRevenue.previous}
+            metrics={comparisonMetrics.sales.totalRevenue}
+            formatValue={(v) => `$${v.toFixed(2)}`}
+            isPositiveBetter={true}
+            icon={<DollarSign className="h-4 w-4" />}
+          />
+          <ComparisonCard
+            title="Cantidad Vendida"
+            current={comparisonMetrics.sales.totalQuantity.current}
+            previous={comparisonMetrics.sales.totalQuantity.previous}
+            metrics={comparisonMetrics.sales.totalQuantity}
+            formatValue={(v) => `${Math.round(v)} unidades`}
+            isPositiveBetter={true}
+            icon={<Package className="h-4 w-4" />}
+          />
+          <ComparisonCard
+            title="Ticket Promedio"
+            current={comparisonMetrics.sales.averageOrderValue.current}
+            previous={comparisonMetrics.sales.averageOrderValue.previous}
+            metrics={comparisonMetrics.sales.averageOrderValue}
+            formatValue={(v) => `$${v.toFixed(2)}`}
+            isPositiveBetter={true}
+            icon={<FileText className="h-4 w-4" />}
+          />
+          <ComparisonCard
+            title="Gastos Totales"
+            current={comparisonMetrics.expenses.totalExpenses.current}
+            previous={comparisonMetrics.expenses.totalExpenses.previous}
+            metrics={comparisonMetrics.expenses.totalExpenses}
+            formatValue={(v) => `$${v.toFixed(2)}`}
+            isPositiveBetter={false}
+            icon={<Layers className="h-4 w-4" />}
+          />
+        </div>
+      )}
+
+      {/* Panel de Insights */}
+      {comparisonEnabled && insights.length > 0 && (
+        <InsightsPanel insights={insights} isLoading={false} />
+      )}
+
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="shadow-lg">
