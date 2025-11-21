@@ -108,34 +108,39 @@ const allNavItems = [
   { href: "/production", label: "Producción", icon: Layers, scope: 'branch' },
   { href: "/raw-material-inventory", label: "Inventario Materia Prima", icon: Archive, scope: 'branch' },
   { href: "/recipes", label: "Recetas", icon: Utensils, scope: 'branch' },
-];
+] as const;
 
-const globalNavItems = allNavItems
-  .filter(item => item.scope === 'global')
-  .sort((a, b) => a.label.localeCompare(b.label));
+// Memorizar para evitar recalcular en cada render
+const navItems = (() => {
+  const globalNavItems = allNavItems
+    .filter(item => item.scope === 'global')
+    .sort((a, b) => a.label.localeCompare(b.label));
 
-const branchNavItems = allNavItems
-  .filter(item => item.scope === 'branch')
-  .sort((a, b) => a.label.localeCompare(b.label));
+  const branchNavItems = allNavItems
+    .filter(item => item.scope === 'branch')
+    .sort((a, b) => a.label.localeCompare(b.label));
 
-const navItems = [...globalNavItems, ...branchNavItems];
+  return [...globalNavItems, ...branchNavItems];
+})();
 
 const allFooterNavItems = [
   { href: "/select-branch", label: "Cambiar Sede", icon: Building, scope: 'global' },
   { href: "/data-management", label: "Gestión de Datos", icon: ArchiveRestore, scope: 'global' },
   { href: "/logout", label: "Cerrar Sesión", icon: LogOut, scope: 'global' },
   { href: "/profile", label: "Perfil de Usuario", icon: UserCircle, scope: 'global' },
-];
+] as const;
 
-const globalFooterNavItems = allFooterNavItems
-  .filter(item => item.scope === 'global')
-  .sort((a, b) => a.label.localeCompare(b.label));
+const footerNavItems = (() => {
+  const globalFooterNavItems = allFooterNavItems
+    .filter(item => item.scope === 'global')
+    .sort((a, b) => a.label.localeCompare(b.label));
 
-const branchFooterNavItems = allFooterNavItems
-  .filter(item => item.scope === 'branch')
-  .sort((a, b) => a.label.localeCompare(b.label));
+  const branchFooterNavItems = allFooterNavItems
+    .filter(item => item.scope === 'branch')
+    .sort((a, b) => a.label.localeCompare(b.label));
 
-const footerNavItems = [...globalFooterNavItems, ...branchFooterNavItems];
+  return [...globalFooterNavItems, ...branchFooterNavItems];
+})();
 
 
 export default function RootLayout({
@@ -155,18 +160,23 @@ export default function RootLayout({
     setIsClient(true);
   }, []);
 
+  // Optimizar con useCallback para evitar recrear función
+  const checkAuthAndBranch = useCallback(() => {
+    const loggedIn = localStorage.getItem('isUserLoggedIn') === 'true';
+    const currentBranch = getActiveBranchId();
+    setIsAuthenticated(loggedIn);
+    setActiveBranchIdState(currentBranch);
+    if (loggedIn && userProfileData) {
+      setUserName(userProfileData.fullName);
+    }
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
     if (isClient) {
-      const loggedIn = localStorage.getItem('isUserLoggedIn') === 'true';
-      const currentBranch = getActiveBranchId();
-      setIsAuthenticated(loggedIn);
-      setActiveBranchIdState(currentBranch);
-      if (loggedIn && userProfileData) {
-        setUserName(userProfileData.fullName);
-      }
-      setLoading(false);
+      checkAuthAndBranch();
     }
-  }, [isClient, pathname]);
+  }, [isClient, checkAuthAndBranch]);
 
   useEffect(() => {
     if (!loading) {
