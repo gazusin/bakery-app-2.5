@@ -49,7 +49,9 @@ import {
   PanelLeft,
   ArchiveRestore,
   Settings,
-  Lightbulb
+  Lightbulb,
+  Shield,
+  Clock
 } from 'lucide-react';
 import Link from 'next/link';
 import { getActiveBranchId, availableBranches, userProfileData } from '@/lib/data-storage';
@@ -91,6 +93,8 @@ const allNavItems = [
   { href: "/insights", label: "Insights del Negocio", icon: Lightbulb, scope: 'global' },
   { href: "/accounts-receivable", label: "Cuentas por Cobrar", icon: CreditCard, scope: 'global' },
   { href: "/customers", label: "Clientes", icon: Users, scope: 'global' },
+  { href: "/users", label: "Usuarios", icon: Shield, scope: 'global' },
+  { href: "/audit-logs", label: "Logs de Auditoría", icon: Clock, scope: 'global' },
   // { href: "/data-management", label: "Gestión de Datos", icon: ArchiveRestore, scope: 'global' }, // Movido al footer
   { href: "/inventory", label: "Stock de producción", icon: Package, scope: 'global' },
   { href: "/inventory-transfers", label: "Transferencias MP", icon: ArrowRightLeft, scope: 'global' },
