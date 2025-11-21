@@ -48,7 +48,8 @@ import {
   type WeeklyLossReport,
   weeklyProfitReportsData as initialWeeklyProfitReportsData,
   type WeeklyProfitReport,
-  type ProductionLogEntry
+  type ProductionLogEntry,
+  RawMaterial
 } from '@/lib/data-storage';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -62,8 +63,8 @@ import {
   CartesianGrid,
   XAxis,
   YAxis,
-  Tooltip as RechartsTooltip,
-  Legend as RechartsLegend,
+  Tooltip,
+  Legend,
   ResponsiveContainer
 } from "recharts";
 import {
@@ -76,6 +77,18 @@ import {
 } from "@/components/ui/chart";
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { FormattedNumber } from '@/components/ui/formatted-number';
+import AdvancedReportCards from './AdvancedReportCards';
+import { InsightsPanel } from './InsightsPanel';
+import { ComparisonCard } from './ComparisonCard';
+import {
+  getComparisonPeriodDates,
+  calculateSalesComparison,
+  calculateExpensesComparison,
+  type AllComparisonMetrics,
+  type SalesComparisonMetrics,
+  type ExpensesComparisonMetrics
+} from '@/lib/comparative-analytics';
+import { generateInsights, type Insight } from '@/lib/insights-generator';
 
 
 interface jsPDFWithAutoTable extends jsPDF {
@@ -141,6 +154,12 @@ export default function ReportsPage() {
   const [weeklyProfitReports, setWeeklyProfitReports] = useState<WeeklyProfitReport[]>([]);
   const [isProfitReportDialogOpen, setIsProfitReportDialogOpen] = useState(false);
   const [selectedProfitReport, setSelectedProfitReport] = useState<WeeklyProfitReport | null>(null);
+
+  // Comparison analytics state
+  const [comparisonEnabled, setComparisonEnabled] = useState(false);
+  const [comparisonType, setComparisonType] = useState<'previous' | 'yearOverYear'>('previous');
+  const [comparisonMetrics, setComparisonMetrics] = useState<AllComparisonMetrics | null>(null);
+  const [insights, setInsights] = useState<Insight[]>([]);
 
 
   useEffect(() => {
