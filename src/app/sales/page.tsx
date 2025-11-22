@@ -72,7 +72,10 @@ import {
   userProfileData,
   updateGlobalSaleDataAndFinances,
   loadFromLocalStorage,
-  type Recipe
+  type Recipe,
+  checkDuplicateReference,
+  validateReferenceFormat,
+  getCustomerCreditStatus
 } from '@/lib/data-storage';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import jsPDF from 'jspdf';
@@ -382,6 +385,51 @@ export default function SalesPage() {
       toast({ title: "Error de Validación", description: "Fecha, cliente y al menos un ítem, cambio o muestra son obligatorios.", variant: "destructive" });
       setIsSubmitting(false); return;
     }
+
+    // Validar semáforo de crédito si es venta a crédito
+    if (newPaymentMethod === 'Crédito') {
+      const creditStatus = getCustomerCreditStatus(newSelectedCustomerId, userProfileData.role);
+
+      if (creditStatus.isBlocked) {
+        if (!creditStatus.canOverride) {
+          // Usuario no puede anular el bloqueo
+          toast({
+            title: "Cliente Bloqueado",
+            description: `El cliente tiene una deuda vencida de $${creditStatus.overdueAmount.toFixed(2)} con ${creditStatus.daysPastDue} días de atraso. No se  pueden hacer más ventas a crédito.`,
+            variant: "destructive",
+            duration: 8000
+          });
+          setIsSubmitting(false);
+          return;
+        } else {
+          // Admin/Manager puede anular, pero requiere confirmación
+          const confirmed = window.confirm(
+            `⚠️ CLIENTE CON CRÉDITO VENCIDO\n\n` +
+            `Cliente: ${availableCustomers.find(c => c.id === newSelectedCustomerId)?.name}\n` +
+            `Deuda vencida: $${creditStatus.overdueAmount.toFixed(2)}\n` +
+            `Días de atraso: ${creditStatus.daysPastDue}\n\n` +
+            `Como ${userProfileData.role === 'admin' ? 'Administrador' : 'Manager'}, puedes autorizar esta venta.\n\n` +
+            `¿Deseas continuar con la venta a crédito?`
+          );
+
+          if (!confirmed) {
+            setIsSubmitting(false);
+            return;
+          }
+
+          // Registrar la excepción en auditoría
+          logCreate(
+            'ventas',
+            'credit_override',
+            `${saleId}-override`,
+            { customerId: newSelectedCustomerId, overdueAmount: creditStatus.overdueAmount, daysPastDue: creditStatus.daysPastDue },
+            `Venta a crédito autorizada por ${userProfileData.fullName} para cliente con deuda vencida`,
+            ''
+          );
+        }
+      }
+    }
+
     const totalInvoiceAmount = calculateTotalAmount(validSaleItems, validChangeItems);
     if (totalInvoiceAmount < 0 && !creditNoteTargetInvoiceId) {
       toast({ title: "Acción Requerida", description: "Para ventas con total negativo (notas de crédito), debe seleccionar una factura pendiente a la cual aplicar el crédito.", variant: "destructive" });
@@ -443,6 +491,48 @@ export default function SalesPage() {
         };
         paymentsToCreate.push(creditPayment);
         updateGlobalSaleDataAndFinances(creditPayment, 'add');
+      }
+    }
+
+    // Validar referencias de pagos antes de crear
+    if (newPaymentMethod === 'Pagado' && totalInvoiceAmount > 0) {
+      for (const split of newPaymentSplits) {
+        if (split.amount > 0 && (split.paymentMethod === 'Pago Móvil' || split.paymentMethod === 'Transferencia')) {
+          // Validar que tenga referencia
+          if (!split.referenceNumber) {
+            toast({
+              title: "Referencia Requerida",
+              description: `El método ${split.paymentMethod} requiere número de referencia`,
+              variant: "destructive"
+            });
+            setIsSubmitting(false);
+            return;
+          }
+
+          // Validar formato de 6 dígitos
+          if (!validateReferenceFormat(split.referenceNumber)) {
+            toast({
+              title: "Formato Inválido",
+              description: "La referencia debe tener exactamente 6 dígitos numéricos",
+              variant: "destructive"
+            });
+            setIsSubmitting(false);
+            return;
+          }
+
+          // Validar que no esté duplicada
+          const duplicateCheck = checkDuplicateReference(split.referenceNumber);
+          if (duplicateCheck.exists) {
+            toast({
+              title: "Referencia Duplicada",
+              description: `Esta referencia ya fue usada el ${duplicateCheck.existingPayment?.paymentDate} por ${duplicateCheck.existingPayment?.customerName}`,
+              variant: "destructive",
+              duration: 6000
+            });
+            setIsSubmitting(false);
+            return;
+          }
+        }
       }
     }
 
@@ -596,6 +686,46 @@ export default function SalesPage() {
     saveSalesData(currentSales.sort((a, b) => compareDesc(parseISO(a.timestamp || a.date), parseISO(b.timestamp || b.date))));
 
     // Procesar nuevos pagos si existen
+    // Procesar nuevos pagos si existen
+    // Validar referencias de pagos antes de crear (Similar a handleAddSale)
+    if (editPaymentMethod === 'Pagado' && totalInvoiceAmount > 0) {
+      for (const split of editPaymentSplits) {
+        if (split.amount > 0 && (split.paymentMethod === 'Pago Móvil' || split.paymentMethod === 'Transferencia')) {
+          if (!split.referenceNumber) {
+            toast({
+              title: "Referencia Requerida",
+              description: `El método ${split.paymentMethod} requiere número de referencia`,
+              variant: "destructive"
+            });
+            setIsSubmitting(false);
+            return;
+          }
+
+          if (!validateReferenceFormat(split.referenceNumber)) {
+            toast({
+              title: "Formato Inválido",
+              description: "La referencia debe tener exactamente 6 dígitos numéricos",
+              variant: "destructive"
+            });
+            setIsSubmitting(false);
+            return;
+          }
+
+          const duplicateCheck = checkDuplicateReference(split.referenceNumber, `PAY-SALE-EDIT-${updatedSaleEntry.id}-*`);
+          if (duplicateCheck.exists) {
+            toast({
+              title: "Referencia Duplicada",
+              description: `Esta referencia ya fue usada el ${duplicateCheck.existingPayment?.paymentDate}`,
+              variant: "destructive",
+              duration: 6000
+            });
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      }
+    }
+
     // Procesar nuevos pagos si existen
     if (editPaymentMethod === 'Pagado' && totalInvoiceAmount > 0) {
       const paymentsToCreate: Payment[] = [];

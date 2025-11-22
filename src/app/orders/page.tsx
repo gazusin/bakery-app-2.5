@@ -87,7 +87,9 @@ import {
   normalizeUnit,
   type PricePointInfo,
   type Supplier,
-  type Recipe
+  type Recipe,
+  checkDuplicateReference,
+  validateReferenceFormat
 } from '@/lib/data-storage';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -153,7 +155,7 @@ export default function OrdersPage() {
       if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         return crypto.randomUUID().replace(/-/g, '').substring(0, 22);
       }
-      return (Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36,2,15)).substring(0, 22);
+      return (Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36, 2, 15)).substring(0, 22);
     };
 
     do {
@@ -207,7 +209,7 @@ export default function OrdersPage() {
 
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
 
-  const handleConversionsUpdated = useCallback(() => {}, []);
+  const handleConversionsUpdated = useCallback(() => { }, []);
 
 
   const loadInitialData = useCallback(() => {
@@ -219,13 +221,13 @@ export default function OrdersPage() {
       return;
     }
 
-    const orders = [...loadFromLocalStorageForBranch<PurchaseOrder[]>(KEYS.PURCHASE_ORDERS, activeBranchId)].sort((a,b) => {
-        const dateA = a.orderDate && isValid(parseISO(a.orderDate)) ? parseISO(a.orderDate).getTime() : 0;
-        const dateB = b.orderDate && isValid(parseISO(b.orderDate)) ? parseISO(b.orderDate).getTime() : 0;
-        if (dateA === 0 && dateB === 0) return 0;
-        if (dateA === 0) return 1;
-        if (dateB === 0) return -1;
-        return dateB - dateA;
+    const orders = [...loadFromLocalStorageForBranch<PurchaseOrder[]>(KEYS.PURCHASE_ORDERS, activeBranchId)].sort((a, b) => {
+      const dateA = a.orderDate && isValid(parseISO(a.orderDate)) ? parseISO(a.orderDate).getTime() : 0;
+      const dateB = b.orderDate && isValid(parseISO(b.orderDate)) ? parseISO(b.orderDate).getTime() : 0;
+      if (dateA === 0 && dateB === 0) return 0;
+      if (dateA === 0) return 1;
+      if (dateB === 0) return -1;
+      return dateB - dateA;
     });
     setAllPurchaseOrders(orders);
     setFilteredPurchaseOrders(orders);
@@ -245,20 +247,20 @@ export default function OrdersPage() {
 
     const initialBranchIdForPayment = activeBranchId || (availableBranches.length > 0 ? availableBranches[0].id : '');
     setNewPaymentSplits([{
-        id: generateUniqueItemId('split-load-init', []),
-        amount: 0, currency: 'VES', paymentMethod: 'Transferencia (VES)',
-        paidToBranchId: initialBranchIdForPayment, paidToAccountId: 'vesElectronic',
-        referenceNumber: '', items: []
+      id: generateUniqueItemId('split-load-init', []),
+      amount: 0, currency: 'VES', paymentMethod: 'Transferencia (VES)',
+      paidToBranchId: initialBranchIdForPayment, paidToAccountId: 'vesElectronic',
+      referenceNumber: '', items: []
     }]);
-    
-    setGlobalOrderItems([{ 
-        id: generateUniqueItemId('global-item-load', []), 
-        rawMaterialName: '', quantity: 0, unit: commonUnitOptions[0] || '', 
-        unitPrice: 0, subtotal: 0, bestPriceHint: '', manualPriceEdit: false, 
-        unitPriceDisplayUSD: "0", unitPriceDisplayVES: "0.00", 
-        priceInputCurrency: 'VES' 
+
+    setGlobalOrderItems([{
+      id: generateUniqueItemId('global-item-load', []),
+      rawMaterialName: '', quantity: 0, unit: commonUnitOptions[0] || '',
+      unitPrice: 0, subtotal: 0, bestPriceHint: '', manualPriceEdit: false,
+      unitPriceDisplayUSD: "0", unitPriceDisplayVES: "0.00",
+      priceInputCurrency: 'VES'
     }]);
-    
+
     setIsLoading(false);
   }, [selectedSupplierId, toast, generateUniqueItemId]);
 
@@ -273,67 +275,67 @@ export default function OrdersPage() {
     supplierId: string,
     currentGlobalExchangeRate: number
   ): PurchaseOrderItemExtended[] => {
-      const supplier = currentSuppliers.find(s => s.id === supplierId);
-      if (!supplier) return currentItems;
+    const supplier = currentSuppliers.find(s => s.id === supplierId);
+    if (!supplier) return currentItems;
 
-      const formatVes = (price: number) => (currentGlobalExchangeRate > 0 ? (price * currentGlobalExchangeRate).toFixed(2) : "0.00");
+    const formatVes = (price: number) => (currentGlobalExchangeRate > 0 ? (price * currentGlobalExchangeRate).toFixed(2) : "0.00");
 
-      return currentItems.map(item => {
-          if (item.manualPriceEdit || !item.rawMaterialName) return item;
+    return currentItems.map(item => {
+      if (item.manualPriceEdit || !item.rawMaterialName) return item;
 
-          let newItemData = { ...item };
-          const listToUse = item.priceInputCurrency === 'USD' ? supplier.priceListUSDCash : supplier.priceList;
-          let newUnitPrice = item.unitPrice;
-          let priceFound = false;
+      let newItemData = { ...item };
+      const listToUse = item.priceInputCurrency === 'USD' ? supplier.priceListUSDCash : supplier.priceList;
+      let newUnitPrice = item.unitPrice;
+      let priceFound = false;
 
-          const priceListItem = listToUse?.find(pli => pli.rawMaterialName === item.rawMaterialName && pli.unit === item.unit);
-          if (priceListItem) {
-              const currentPrice = getCurrentPriceFromHistory(priceListItem.priceHistory);
-              if (currentPrice) {
-                  newUnitPrice = currentPrice.price;
-                  priceFound = true;
-              }
+      const priceListItem = listToUse?.find(pli => pli.rawMaterialName === item.rawMaterialName && pli.unit === item.unit);
+      if (priceListItem) {
+        const currentPrice = getCurrentPriceFromHistory(priceListItem.priceHistory);
+        if (currentPrice) {
+          newUnitPrice = currentPrice.price;
+          priceFound = true;
+        }
+      }
+
+      if (!priceFound) {
+        const otherList = item.priceInputCurrency === 'USD' ? supplier.priceList : supplier.priceListUSDCash;
+        const otherPriceItem = otherList?.find(pli => pli.rawMaterialName === item.rawMaterialName && pli.unit === item.unit);
+        if (otherPriceItem) {
+          const currentPrice = getCurrentPriceFromHistory(otherPriceItem.priceHistory);
+          if (currentPrice) {
+            newUnitPrice = currentPrice.price;
           }
+        }
+      }
 
-          if (!priceFound) {
-              const otherList = item.priceInputCurrency === 'USD' ? supplier.priceList : supplier.priceListUSDCash;
-              const otherPriceItem = otherList?.find(pli => pli.rawMaterialName === item.rawMaterialName && pli.unit === item.unit);
-              if (otherPriceItem) {
-                  const currentPrice = getCurrentPriceFromHistory(otherPriceItem.priceHistory);
-                  if (currentPrice) {
-                      newUnitPrice = currentPrice.price;
-                  }
-              }
-          }
+      newItemData.unitPrice = newUnitPrice;
+      newItemData.subtotal = parseFloat(((item.quantity || 0) * newUnitPrice).toFixed(4));
+      newItemData.unitPriceDisplayUSD = newUnitPrice.toFixed(4);
+      newItemData.unitPriceDisplayVES = formatVes(newUnitPrice);
 
-          newItemData.unitPrice = newUnitPrice;
-          newItemData.subtotal = parseFloat(((item.quantity || 0) * newUnitPrice).toFixed(4));
-          newItemData.unitPriceDisplayUSD = newUnitPrice.toFixed(4);
-          newItemData.unitPriceDisplayVES = formatVes(newUnitPrice);
-
-          return newItemData;
-      });
+      return newItemData;
+    });
   }, [currentSuppliers]);
 
 
   useEffect(() => {
     if (isAnalyzing) return;
-    
+
     const handler = () => {
       if (isEditingPO) {
         const updatedItems = updateItemsForNewSupplier(globalOrderItems, selectedSupplierId, exchangeRate);
         setGlobalOrderItems(updatedItems);
         const updatedSplits = editPaymentSplits.map(split => ({
-            ...split,
-            items: updateItemsForNewSupplier(split.items || [], selectedSupplierId, exchangeRate)
+          ...split,
+          items: updateItemsForNewSupplier(split.items || [], selectedSupplierId, exchangeRate)
         }));
         setEditPaymentSplits(updatedSplits);
       } else {
         const updatedItems = updateItemsForNewSupplier(globalOrderItems, selectedSupplierId, exchangeRate);
         setGlobalOrderItems(updatedItems);
         const updatedSplits = newPaymentSplits.map(split => ({
-            ...split,
-            items: updateItemsForNewSupplier(split.items || [], selectedSupplierId, exchangeRate)
+          ...split,
+          items: updateItemsForNewSupplier(split.items || [], selectedSupplierId, exchangeRate)
         }));
         setNewPaymentSplits(updatedSplits);
       }
@@ -348,7 +350,7 @@ export default function OrdersPage() {
     const handleDataUpdate = (event: Event) => {
       const customEvent = event as CustomEvent;
       const key = customEvent.detail?.key;
-  
+
       if (key === KEYS.SUPPLIERS) {
         setCurrentSuppliers([...initialSuppliersData]);
       } else if (key === KEYS.RAW_MATERIAL_OPTIONS) {
@@ -361,9 +363,9 @@ export default function OrdersPage() {
       } else if (
         !isPODialogOpen &&
         (key === KEYS.PURCHASE_ORDERS ||
-         key === KEYS.RAW_MATERIAL_INVENTORY ||
-         key === KEYS.COMPANY_ACCOUNTS ||
-         key === KEYS.CUSTOM_CONVERSION_RULES)
+          key === KEYS.RAW_MATERIAL_INVENTORY ||
+          key === KEYS.COMPANY_ACCOUNTS ||
+          key === KEYS.CUSTOM_CONVERSION_RULES)
       ) {
         loadInitialData();
       }
@@ -396,7 +398,7 @@ export default function OrdersPage() {
 
   const applyFilters = useCallback(() => {
     let filtered = [...allPurchaseOrders];
-    
+
     if (dateRangeFilter?.from) {
       const toDate = dateRangeFilter.to ? endOfDay(dateRangeFilter.to) : endOfDay(dateRangeFilter.from);
       filtered = filtered.filter(po =>
@@ -405,11 +407,11 @@ export default function OrdersPage() {
     }
 
     if (filterSupplierId !== ALL_SUPPLIERS_FILTER_VALUE) {
-        filtered = filtered.filter(po => po.supplierId === filterSupplierId);
+      filtered = filtered.filter(po => po.supplierId === filterSupplierId);
     }
-    
+
     if (filterOrderId.trim() !== '') {
-        filtered = filtered.filter(po => po.id.toLowerCase().includes(filterOrderId.trim().toLowerCase()));
+      filtered = filtered.filter(po => po.id.toLowerCase().includes(filterOrderId.trim().toLowerCase()));
     }
 
     setFilteredPurchaseOrders(filtered);
@@ -422,8 +424,8 @@ export default function OrdersPage() {
 
   const calculateItemsTotalCost = useCallback((itemsList: PurchaseOrderItemExtended[]): number => {
     return itemsList.reduce((total, item) => {
-        const subtotal = Number(item.subtotal) || 0;
-        return total + subtotal;
+      const subtotal = Number(item.subtotal) || 0;
+      return total + subtotal;
     }, 0);
   }, []);
 
@@ -468,7 +470,7 @@ export default function OrdersPage() {
     }
     const currentGlobalItemsIds = (Array.isArray(globalOrderItems) ? globalOrderItems : []).map(it => it.id);
     const rateForReset = loadExchangeRate(today);
-    
+
     setGlobalOrderItems([{
       id: generateUniqueItemId('global-item-reset', currentGlobalItemsIds),
       rawMaterialName: initialMaterial,
@@ -480,13 +482,13 @@ export default function OrdersPage() {
       manualPriceEdit: false,
       unitPriceDisplayUSD: initialPriceUSD.toFixed(4),
       unitPriceDisplayVES: rateForReset > 0 ? (initialPriceUSD * rateForReset).toFixed(2) : "0.00",
-      priceInputCurrency: 'VES' 
+      priceInputCurrency: 'VES'
     }]);
 
     const activeBranch = getActiveBranchId();
     const initialBranchIdForPayment = activeBranch || (availableBranches.length > 0 ? availableBranches[0].id : '');
     const existingSplitIds = (Array.isArray(newPaymentSplits) ? newPaymentSplits : []).map(s => s.id);
-    
+
     const initialSplitCurrency: 'VES' | 'USD' = 'VES';
     const initialSplitPaymentMethod: PaymentMethodType = 'Transferencia (VES)';
     const initialSplitAccountId: AccountType = 'vesElectronic';
@@ -525,15 +527,15 @@ export default function OrdersPage() {
       const newItems = [...prevItems];
       const updatedItem = { ...newItems[itemIndex] };
       const supplier = currentSuppliers.find(s => s.id === selectedSupplierId);
-      
+
       let splitCurrencyForListLookup: 'USD' | 'VES' = updatedItem.priceInputCurrency;
       if (splitIndex !== undefined) {
-          const currentSplits = isEditingPO ? editPaymentSplits : newPaymentSplits;
-          if (currentSplits[splitIndex]) {
-              splitCurrencyForListLookup = currentSplits[splitIndex].currency;
-          }
+        const currentSplits = isEditingPO ? editPaymentSplits : newPaymentSplits;
+        if (currentSplits[splitIndex]) {
+          splitCurrencyForListLookup = currentSplits[splitIndex].currency;
+        }
       }
-      
+
       const formatVesPriceWithCurrentRate = (usdPrice: number) => {
         if (exchangeRate > 0 && typeof usdPrice === 'number' && !isNaN(usdPrice)) {
           return (usdPrice * exchangeRate).toFixed(2);
@@ -552,7 +554,7 @@ export default function OrdersPage() {
 
         if (supplier) {
           const listToUse = splitIndex !== undefined ? (splitCurrencyForListLookup === 'USD' ? supplier.priceListUSDCash : supplier.priceList) : (updatedItem.priceInputCurrency === 'USD' ? supplier.priceListUSDCash : supplier.priceList);
-          
+
           const priceListItem = listToUse?.find(pli => pli.rawMaterialName === updatedItem.rawMaterialName);
           const currentPriceEntry = priceListItem ? getCurrentPriceFromHistory(priceListItem.priceHistory) : null;
 
@@ -571,7 +573,7 @@ export default function OrdersPage() {
             hint = 'No encontrado en la lista de este proveedor. Ingresa el precio manualmente.';
             const bestPriceInfo = getBestPriceInfo(updatedItem.rawMaterialName);
             if (bestPriceInfo) {
-                hint += ` Mejor opción: ${bestPriceInfo.supplierName} a $${bestPriceInfo.originalUnitPrice.toFixed(4)} por ${bestPriceInfo.originalUnit}.`;
+              hint += ` Mejor opción: ${bestPriceInfo.supplierName} a $${bestPriceInfo.originalUnitPrice.toFixed(4)} por ${bestPriceInfo.originalUnit}.`;
             }
           }
         }
@@ -593,8 +595,8 @@ export default function OrdersPage() {
           if (priceListItem) {
             newPriceUSD = getCurrentPriceFromHistory(priceListItem.priceHistory)?.price || 0;
           } else {
-             const anyPriceListItem = listToUse?.find(pli => pli.rawMaterialName === updatedItem.rawMaterialName);
-             if(anyPriceListItem) newPriceUSD = getCurrentPriceFromHistory(anyPriceListItem.priceHistory)?.price || 0;
+            const anyPriceListItem = listToUse?.find(pli => pli.rawMaterialName === updatedItem.rawMaterialName);
+            if (anyPriceListItem) newPriceUSD = getCurrentPriceFromHistory(anyPriceListItem.priceHistory)?.price || 0;
           }
         }
         updatedItem.unitPrice = newPriceUSD;
@@ -602,15 +604,15 @@ export default function OrdersPage() {
         updatedItem.unitPriceDisplayUSD = newPriceUSD.toFixed(4);
         updatedItem.unitPriceDisplayVES = formatVesPriceWithCurrentRate(newPriceUSD);
 
-      } else if (field === 'priceInputCurrency') { 
+      } else if (field === 'priceInputCurrency') {
         updatedItem.priceInputCurrency = value as 'USD' | 'VES';
         let newPriceFromList = 0;
-        if(supplier && updatedItem.rawMaterialName && updatedItem.unit) {
-            const listToUseForNewCurrency = updatedItem.priceInputCurrency === 'USD' ? supplier.priceListUSDCash : supplier.priceList;
-            const priceListItem = listToUseForNewCurrency?.find(pli => pli.rawMaterialName === updatedItem.rawMaterialName && pli.unit === updatedItem.unit);
-            if(priceListItem) {
-                newPriceFromList = getCurrentPriceFromHistory(priceListItem.priceHistory)?.price || 0;
-            }
+        if (supplier && updatedItem.rawMaterialName && updatedItem.unit) {
+          const listToUseForNewCurrency = updatedItem.priceInputCurrency === 'USD' ? supplier.priceListUSDCash : supplier.priceList;
+          const priceListItem = listToUseForNewCurrency?.find(pli => pli.rawMaterialName === updatedItem.rawMaterialName && pli.unit === updatedItem.unit);
+          if (priceListItem) {
+            newPriceFromList = getCurrentPriceFromHistory(priceListItem.priceHistory)?.price || 0;
+          }
         }
         updatedItem.unitPrice = newPriceFromList;
         updatedItem.manualPriceEdit = false;
@@ -635,7 +637,7 @@ export default function OrdersPage() {
           updatedItem.unitPriceDisplayUSD = updatedItem.unitPrice.toFixed(4);
         }
       }
-      
+
       updatedItem.subtotal = parseFloat(((Number(updatedItem.quantity) || 0) * (Number(updatedItem.unitPrice) || 0)).toFixed(4));
       newItems[itemIndex] = updatedItem;
       return newItems;
@@ -649,9 +651,9 @@ export default function OrdersPage() {
           newSplits[splitIndex].items = updateItemsState(newSplits[splitIndex].items || []);
           const totalItemsUSDForSplit = (newSplits[splitIndex].items || []).reduce((sum, item) => sum + (item.subtotal || 0), 0);
           if (newSplits[splitIndex].currency === 'VES') {
-              newSplits[splitIndex].amount = parseFloat((totalItemsUSDForSplit * (newSplits[splitIndex].exchangeRateAtPayment || exchangeRate || 1)).toFixed(2));
-          } else { 
-              newSplits[splitIndex].amount = parseFloat(totalItemsUSDForSplit.toFixed(2));
+            newSplits[splitIndex].amount = parseFloat((totalItemsUSDForSplit * (newSplits[splitIndex].exchangeRateAtPayment || exchangeRate || 1)).toFixed(2));
+          } else {
+            newSplits[splitIndex].amount = parseFloat(totalItemsUSDForSplit.toFixed(2));
           }
         }
         return newSplits;
@@ -686,7 +688,7 @@ export default function OrdersPage() {
 
     const supplier = { ...suppliersToUpdate[supplierIndex] };
     const priceListName = listType === 'usdCash' ? 'priceListUSDCash' : 'priceList';
-    
+
     if (!Array.isArray(supplier[priceListName])) {
       supplier[priceListName] = [];
     }
@@ -718,10 +720,10 @@ export default function OrdersPage() {
 
     supplier[priceListName] = targetPriceList;
     suppliersToUpdate[supplierIndex] = supplier;
-    
+
     saveSuppliersData(suppliersToUpdate);
     setCurrentSuppliers(suppliersToUpdate);
-    
+
     toast({
       title: "Precio Guardado",
       description: `El precio para ${rawMaterialName} se ha guardado en la lista de ${supplier.name}.`,
@@ -731,52 +733,52 @@ export default function OrdersPage() {
   useEffect(() => {
     if (isAnalyzing) return;
     if (isPODialogOpen && isEditingPO && originalPOForEdit) {
-        if (currentOrderStatus === 'Pagado' && originalPOForEdit.status !== 'Pagado') {
-            const currentSplits = Array.isArray(editPaymentSplits) ? editPaymentSplits : [];
-            const currentGlobalItemsForAutoSplit = Array.isArray(globalOrderItems) ? globalOrderItems : [];
+      if (currentOrderStatus === 'Pagado' && originalPOForEdit.status !== 'Pagado') {
+        const currentSplits = Array.isArray(editPaymentSplits) ? editPaymentSplits : [];
+        const currentGlobalItemsForAutoSplit = Array.isArray(globalOrderItems) ? globalOrderItems : [];
 
-            if ((!currentSplits || currentSplits.length === 0 || currentSplits.every(ps => !ps.items || ps.items.length === 0)) && currentGlobalItemsForAutoSplit.length > 0 && currentGlobalItemsForAutoSplit.some(it => it.rawMaterialName && it.quantity > 0)) {
-                const totalGlobalItemsCostUSD = calculateItemsTotalCost(currentGlobalItemsForAutoSplit);
-                const activeBranchForPayment = getActiveBranchId() || (availableBranches.length > 0 ? availableBranches[0].id : '');
-                
-                const existingSplitIds = currentSplits.map(s => s.id);
-                
-                let defaultSplitCurrency: 'VES' | 'USD' = 'VES';
-                let defaultSplitPaymentMethod: PaymentMethodType = 'Transferencia (VES)';
-                let defaultSplitAccountId: AccountType = 'vesElectronic';
-                
-                const supplierDetails = currentSuppliers.find(s => s.id === selectedSupplierId);
-                if (supplierDetails?.priceListUSDCash && supplierDetails.priceListUSDCash.length > 0 && exchangeRate > 0) {
-                     let usdMatchCount = 0;
-                    currentGlobalItemsForAutoSplit.forEach(item => {
-                        const usdPriceItem = supplierDetails.priceListUSDCash?.find(pli => pli.rawMaterialName === item.rawMaterialName && pli.unit === item.unit);
-                        if (usdPriceItem && getCurrentPriceFromHistory(usdPriceItem.priceHistory)?.price === item.unitPrice) {
-                            usdMatchCount++;
-                        }
-                    });
-                    if (usdMatchCount > currentGlobalItemsForAutoSplit.length / 2) {
-                        defaultSplitCurrency = 'USD';
-                        defaultSplitPaymentMethod = 'Efectivo USD';
-                        defaultSplitAccountId = 'usdCash';
-                    }
-                }
+        if ((!currentSplits || currentSplits.length === 0 || currentSplits.every(ps => !ps.items || ps.items.length === 0)) && currentGlobalItemsForAutoSplit.length > 0 && currentGlobalItemsForAutoSplit.some(it => it.rawMaterialName && it.quantity > 0)) {
+          const totalGlobalItemsCostUSD = calculateItemsTotalCost(currentGlobalItemsForAutoSplit);
+          const activeBranchForPayment = getActiveBranchId() || (availableBranches.length > 0 ? availableBranches[0].id : '');
 
-                const newSplitAmount = defaultSplitCurrency === 'VES' ? totalGlobalItemsCostUSD * (exchangeRate || 1) : totalGlobalItemsCostUSD;
+          const existingSplitIds = currentSplits.map(s => s.id);
 
-                setEditPaymentSplits([{
-                    id: generateUniqueItemId(`split-auto-edit`, existingSplitIds),
-                    amount: parseFloat(newSplitAmount.toFixed(2)),
-                    currency: defaultSplitCurrency,
-                    paymentMethod: defaultSplitPaymentMethod,
-                    paidToBranchId: activeBranchForPayment,
-                    paidToAccountId: defaultSplitAccountId,
-                    referenceNumber: '',
-                    items: JSON.parse(JSON.stringify(currentGlobalItemsForAutoSplit.filter(it => it.rawMaterialName && it.quantity > 0).map(item => ({
-                        id: item.id, rawMaterialName: item.rawMaterialName, quantity: item.quantity, unit: item.unit, unitPrice: Number(item.unitPrice), subtotal: item.subtotal
-                    }))))
-                }]);
+          let defaultSplitCurrency: 'VES' | 'USD' = 'VES';
+          let defaultSplitPaymentMethod: PaymentMethodType = 'Transferencia (VES)';
+          let defaultSplitAccountId: AccountType = 'vesElectronic';
+
+          const supplierDetails = currentSuppliers.find(s => s.id === selectedSupplierId);
+          if (supplierDetails?.priceListUSDCash && supplierDetails.priceListUSDCash.length > 0 && exchangeRate > 0) {
+            let usdMatchCount = 0;
+            currentGlobalItemsForAutoSplit.forEach(item => {
+              const usdPriceItem = supplierDetails.priceListUSDCash?.find(pli => pli.rawMaterialName === item.rawMaterialName && pli.unit === item.unit);
+              if (usdPriceItem && getCurrentPriceFromHistory(usdPriceItem.priceHistory)?.price === item.unitPrice) {
+                usdMatchCount++;
+              }
+            });
+            if (usdMatchCount > currentGlobalItemsForAutoSplit.length / 2) {
+              defaultSplitCurrency = 'USD';
+              defaultSplitPaymentMethod = 'Efectivo USD';
+              defaultSplitAccountId = 'usdCash';
             }
+          }
+
+          const newSplitAmount = defaultSplitCurrency === 'VES' ? totalGlobalItemsCostUSD * (exchangeRate || 1) : totalGlobalItemsCostUSD;
+
+          setEditPaymentSplits([{
+            id: generateUniqueItemId(`split-auto-edit`, existingSplitIds),
+            amount: parseFloat(newSplitAmount.toFixed(2)),
+            currency: defaultSplitCurrency,
+            paymentMethod: defaultSplitPaymentMethod,
+            paidToBranchId: activeBranchForPayment,
+            paidToAccountId: defaultSplitAccountId,
+            referenceNumber: '',
+            items: JSON.parse(JSON.stringify(currentGlobalItemsForAutoSplit.filter(it => it.rawMaterialName && it.quantity > 0).map(item => ({
+              id: item.id, rawMaterialName: item.rawMaterialName, quantity: item.quantity, unit: item.unit, unitPrice: Number(item.unitPrice), subtotal: item.subtotal
+            }))))
+          }]);
         }
+      }
     }
   }, [isAnalyzing, currentOrderStatus, isPODialogOpen, isEditingPO, originalPOForEdit, globalOrderItems, calculateItemsTotalCost, generateUniqueItemId, editPaymentSplits, exchangeRate, currentSuppliers, selectedSupplierId]);
 
@@ -786,7 +788,7 @@ export default function OrdersPage() {
       return;
     }
     isAddingSplitItemRef.current = true;
-    
+
     const setSplits = isEditingPO ? setEditPaymentSplits : setNewPaymentSplits;
     const currentSplitsForNewItem = isEditingPO ? editPaymentSplits : newPaymentSplits;
     const targetSplitForNewItem = currentSplitsForNewItem[splitIndex];
@@ -803,14 +805,14 @@ export default function OrdersPage() {
         let initialUnit = commonUnitOptions[0] || '';
         const supplier = currentSuppliers.find(s => s.id === selectedSupplierId);
         if (initialMaterial && supplier) {
-            const listToUse = targetSplitForNewItem.currency === 'USD' ? supplier.priceListUSDCash : supplier.priceList;
-            const pli = listToUse?.find(p => p.rawMaterialName === initialMaterial);
-            if (pli) {
-                initialPriceUSD = getCurrentPriceFromHistory(pli.priceHistory)?.price || 0;
-                initialUnit = pli.unit;
-            }
+          const listToUse = targetSplitForNewItem.currency === 'USD' ? supplier.priceListUSDCash : supplier.priceList;
+          const pli = listToUse?.find(p => p.rawMaterialName === initialMaterial);
+          if (pli) {
+            initialPriceUSD = getCurrentPriceFromHistory(pli.priceHistory)?.price || 0;
+            initialUnit = pli.unit;
+          }
         }
-        
+
         const currentItemsInThisSplitForIdGen = existingItems.map(it => it.id);
         const newItemId = generateUniqueItemId(`split-item-${splitIndex}-idx${existingItems.length}`, currentItemsInThisSplitForIdGen);
 
@@ -829,10 +831,10 @@ export default function OrdersPage() {
         };
 
         targetSplit.items = [...existingItems, newItem];
-      
+
         newSplits[splitIndex] = targetSplit;
       }
-      
+
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           isAddingSplitItemRef.current = false;
@@ -853,30 +855,30 @@ export default function OrdersPage() {
       if (newSplits[splitIndex] && newSplits[splitIndex].items) {
         newSplits[splitIndex].items = newSplits[splitIndex].items!.filter((_, i) => i !== itemIndex);
         if (newSplits[splitIndex].items!.length === 0) {
-            const initialMaterial = currentRawMaterialOptions.length > 0 ? currentRawMaterialOptions[0] : '';
-            let initialPriceUSD = 0; let initialUnit = commonUnitOptions[0] || '';
-            const supplier = currentSuppliers.find(s => s.id === selectedSupplierId);
-            if (initialMaterial && supplier) {
-                const listToUse = targetSplitForRemove.currency === 'USD' ? supplier.priceListUSDCash : supplier.priceList;
-                const pli = listToUse?.find(p => p.rawMaterialName === initialMaterial);
-                if (pli) { initialPriceUSD = getCurrentPriceFromHistory(pli.priceHistory)?.price || 0; initialUnit = pli.unit; }
-            }
-            const placeholderItemId = generateUniqueItemId(`split-item-${splitIndex}-placeholder`, (newSplits[splitIndex].items || []).map(it => it.id));
-            newSplits[splitIndex].items = [{
-                id: placeholderItemId,
-                rawMaterialName: initialMaterial,
-                quantity: 0, unit: initialUnit, unitPrice: initialPriceUSD, subtotal: 0,
-                bestPriceHint: '', manualPriceEdit: false,
-                unitPriceDisplayUSD: initialPriceUSD.toFixed(4),
-                unitPriceDisplayVES: exchangeRate > 0 ? (initialPriceUSD * exchangeRate).toFixed(2) : "0.00",
-                priceInputCurrency: targetSplitForRemove.currency
-            }];
+          const initialMaterial = currentRawMaterialOptions.length > 0 ? currentRawMaterialOptions[0] : '';
+          let initialPriceUSD = 0; let initialUnit = commonUnitOptions[0] || '';
+          const supplier = currentSuppliers.find(s => s.id === selectedSupplierId);
+          if (initialMaterial && supplier) {
+            const listToUse = targetSplitForRemove.currency === 'USD' ? supplier.priceListUSDCash : supplier.priceList;
+            const pli = listToUse?.find(p => p.rawMaterialName === initialMaterial);
+            if (pli) { initialPriceUSD = getCurrentPriceFromHistory(pli.priceHistory)?.price || 0; initialUnit = pli.unit; }
+          }
+          const placeholderItemId = generateUniqueItemId(`split-item-${splitIndex}-placeholder`, (newSplits[splitIndex].items || []).map(it => it.id));
+          newSplits[splitIndex].items = [{
+            id: placeholderItemId,
+            rawMaterialName: initialMaterial,
+            quantity: 0, unit: initialUnit, unitPrice: initialPriceUSD, subtotal: 0,
+            bestPriceHint: '', manualPriceEdit: false,
+            unitPriceDisplayUSD: initialPriceUSD.toFixed(4),
+            unitPriceDisplayVES: exchangeRate > 0 ? (initialPriceUSD * exchangeRate).toFixed(2) : "0.00",
+            priceInputCurrency: targetSplitForRemove.currency
+          }];
         }
         const totalItemsUSDForSplit = (newSplits[splitIndex].items || []).reduce((sum, item) => sum + (item.subtotal || 0), 0);
         if (newSplits[splitIndex].currency === 'VES') {
-            newSplits[splitIndex].amount = parseFloat((totalItemsUSDForSplit * (newSplits[splitIndex].exchangeRateAtPayment || exchangeRate || 1)).toFixed(2));
+          newSplits[splitIndex].amount = parseFloat((totalItemsUSDForSplit * (newSplits[splitIndex].exchangeRateAtPayment || exchangeRate || 1)).toFixed(2));
         } else {
-            newSplits[splitIndex].amount = parseFloat(totalItemsUSDForSplit.toFixed(2));
+          newSplits[splitIndex].amount = parseFloat(totalItemsUSDForSplit.toFixed(2));
         }
       }
       return newSplits;
@@ -888,8 +890,8 @@ export default function OrdersPage() {
     let initialPriceUSD = 0; let initialUnit = commonUnitOptions[0] || '';
     const supplier = currentSuppliers.find(s => s.id === selectedSupplierId);
     if (initialMaterial && supplier?.priceList) {
-        const pli = supplier.priceList.find(p => p.rawMaterialName === initialMaterial);
-        if (pli) { initialPriceUSD = getCurrentPriceFromHistory(pli.priceHistory)?.price || 0; initialUnit = pli.unit; }
+      const pli = supplier.priceList.find(p => p.rawMaterialName === initialMaterial);
+      if (pli) { initialPriceUSD = getCurrentPriceFromHistory(pli.priceHistory)?.price || 0; initialUnit = pli.unit; }
     }
     const currentGlobalItemsIds = globalOrderItems.map(it => it.id);
     const newId = generateUniqueItemId(`global-item-idx${globalOrderItems.length}`, currentGlobalItemsIds);
@@ -912,18 +914,18 @@ export default function OrdersPage() {
         let initialPriceUSD = 0; let initialUnit = commonUnitOptions[0] || '';
         const supplier = currentSuppliers.find(s => s.id === selectedSupplierId);
         if (initialMaterial && supplier?.priceList) {
-            const pli = supplier.priceList.find(p => p.rawMaterialName === initialMaterial);
-            if (pli) { initialPriceUSD = getCurrentPriceFromHistory(pli.priceHistory)?.price || 0; initialUnit = pli.unit; }
+          const pli = supplier.priceList.find(p => p.rawMaterialName === initialMaterial);
+          if (pli) { initialPriceUSD = getCurrentPriceFromHistory(pli.priceHistory)?.price || 0; initialUnit = pli.unit; }
         }
         const placeholderId = generateUniqueItemId(`global-item-placeholder`, newList.map(it => it.id));
         return [{
-            id: placeholderId,
-            rawMaterialName: initialMaterial,
-            quantity: 0, unit: initialUnit, unitPrice: initialPriceUSD, subtotal: 0,
-            bestPriceHint: '', manualPriceEdit: false,
-            unitPriceDisplayUSD: initialPriceUSD.toFixed(4),
-            unitPriceDisplayVES: exchangeRate > 0 ? (initialPriceUSD * exchangeRate).toFixed(2) : "0.00",
-            priceInputCurrency: 'VES'
+          id: placeholderId,
+          rawMaterialName: initialMaterial,
+          quantity: 0, unit: initialUnit, unitPrice: initialPriceUSD, subtotal: 0,
+          bestPriceHint: '', manualPriceEdit: false,
+          unitPriceDisplayUSD: initialPriceUSD.toFixed(4),
+          unitPriceDisplayVES: exchangeRate > 0 ? (initialPriceUSD * exchangeRate).toFixed(2) : "0.00",
+          priceInputCurrency: 'VES'
         }];
       }
       return newList;
@@ -936,23 +938,23 @@ export default function OrdersPage() {
     const currentSplits = isEditingPO ? editPaymentSplits : newPaymentSplits;
 
     const activeBranchForPayment = getActiveBranchId() || (availableBranches.length > 0 ? availableBranches[0].id : '');
-    
+
     const currentSplitsIds = (Array.isArray(currentSplits) ? currentSplits : []).map(sp => sp.id);
     const newSplitId = generateUniqueItemId(`split-idx${(Array.isArray(currentSplits) ? currentSplits : []).length}`, currentSplitsIds);
-    
+
     const initialSplitCurrency: 'VES' | 'USD' = 'VES';
     const initialSplitPaymentMethod: PaymentMethodType = 'Transferencia (VES)';
     const initialSplitAccountId: AccountType = 'vesElectronic';
 
     setSplits(prev => [...(Array.isArray(prev) ? prev : []), {
-        id: newSplitId,
-        amount: 0,
-        currency: initialSplitCurrency,
-        paymentMethod: initialSplitPaymentMethod,
-        paidToBranchId: activeBranchForPayment,
-        paidToAccountId: initialSplitAccountId,
-        referenceNumber: '',
-        items: []
+      id: newSplitId,
+      amount: 0,
+      currency: initialSplitCurrency,
+      paymentMethod: initialSplitPaymentMethod,
+      paidToBranchId: activeBranchForPayment,
+      paidToAccountId: initialSplitAccountId,
+      referenceNumber: '',
+      items: []
     }]);
   };
   const handleRemovePaymentSplit = (id: string, formType: 'new' | 'edit') => {
@@ -968,13 +970,13 @@ export default function OrdersPage() {
   }, [exchangeRate]);
 
   const getAccountsForPOPaymentSplitMethod = useCallback((currency: 'USD' | 'VES', method: PaymentMethodType): AccountType[] => {
-      if (currency === 'USD' && method === 'Efectivo USD') return ['usdCash'];
-      if (currency === 'VES' && exchangeRate > 0) {
-          if (method === 'Pago Móvil (VES)' || method === 'Transferencia (VES)') return ['vesElectronic'];
-          if (method === 'Efectivo VES') return ['vesCash'];
-      }
-      if ((currency === 'VES' && exchangeRate <= 0) || method === 'Otro') return [];
-      return Object.values(accountTypeNames).map((_, idx) => Object.keys(accountTypeNames)[idx] as AccountType);
+    if (currency === 'USD' && method === 'Efectivo USD') return ['usdCash'];
+    if (currency === 'VES' && exchangeRate > 0) {
+      if (method === 'Pago Móvil (VES)' || method === 'Transferencia (VES)') return ['vesElectronic'];
+      if (method === 'Efectivo VES') return ['vesCash'];
+    }
+    if ((currency === 'VES' && exchangeRate <= 0) || method === 'Otro') return [];
+    return Object.values(accountTypeNames).map((_, idx) => Object.keys(accountTypeNames)[idx] as AccountType);
   }, [exchangeRate]);
 
   const handlePaymentSplitChange = (id: string, field: keyof Omit<PaymentSplit, 'id' | 'items' | 'amount'>, value: string | number | undefined, formType: 'new' | 'edit') => {
@@ -989,53 +991,53 @@ export default function OrdersPage() {
             updatedSplit.paymentMethod = 'Efectivo USD';
             updatedSplit.paidToAccountId = 'usdCash';
           } else {
-            if (updatedSplit.paymentMethod === 'Efectivo USD' || updatedSplit.paymentMethod === 'Otro') { 
-                updatedSplit.paymentMethod = 'Transferencia (VES)';
-                updatedSplit.paidToAccountId = 'vesElectronic';
+            if (updatedSplit.paymentMethod === 'Efectivo USD' || updatedSplit.paymentMethod === 'Otro') {
+              updatedSplit.paymentMethod = 'Transferencia (VES)';
+              updatedSplit.paidToAccountId = 'vesElectronic';
             } else if (updatedSplit.paymentMethod === 'Efectivo VES') {
-                updatedSplit.paidToAccountId = 'vesCash';
-            } else { 
-                updatedSplit.paidToAccountId = 'vesElectronic';
+              updatedSplit.paidToAccountId = 'vesCash';
+            } else {
+              updatedSplit.paidToAccountId = 'vesElectronic';
             }
           }
-          
+
           const supplier = currentSuppliers.find(s => s.id === selectedSupplierId);
           if (supplier && updatedSplit.items) {
-              const listToUseForNewSplitCurrency = newCurrency === 'USD' ? supplier.priceListUSDCash : supplier.priceList;
-              const updatedItemsForSplit = updatedSplit.items.map(item => {
-                  let newUnitPriceUSD = item.unitPrice;
-                  if (!item.manualPriceEdit) {
-                      const priceListItem = listToUseForNewSplitCurrency?.find(pli =>
-                          pli.rawMaterialName === item.rawMaterialName && pli.unit === item.unit
-                      );
-                      if (priceListItem) {
-                          newUnitPriceUSD = getCurrentPriceFromHistory(priceListItem.priceHistory)?.price || 0;
-                      } else {
-                          const fallbackList = newCurrency === 'USD' ? supplier.priceList : supplier.priceListUSDCash;
-                          const fallbackPriceItem = fallbackList?.find(pli =>
-                              pli.rawMaterialName === item.rawMaterialName && pli.unit === item.unit
-                          );
-                          if (fallbackPriceItem) {
-                              newUnitPriceUSD = getCurrentPriceFromHistory(fallbackPriceItem.priceHistory)?.price || 0;
-                          }
-                      }
+            const listToUseForNewSplitCurrency = newCurrency === 'USD' ? supplier.priceListUSDCash : supplier.priceList;
+            const updatedItemsForSplit = updatedSplit.items.map(item => {
+              let newUnitPriceUSD = item.unitPrice;
+              if (!item.manualPriceEdit) {
+                const priceListItem = listToUseForNewSplitCurrency?.find(pli =>
+                  pli.rawMaterialName === item.rawMaterialName && pli.unit === item.unit
+                );
+                if (priceListItem) {
+                  newUnitPriceUSD = getCurrentPriceFromHistory(priceListItem.priceHistory)?.price || 0;
+                } else {
+                  const fallbackList = newCurrency === 'USD' ? supplier.priceList : supplier.priceListUSDCash;
+                  const fallbackPriceItem = fallbackList?.find(pli =>
+                    pli.rawMaterialName === item.rawMaterialName && pli.unit === item.unit
+                  );
+                  if (fallbackPriceItem) {
+                    newUnitPriceUSD = getCurrentPriceFromHistory(fallbackPriceItem.priceHistory)?.price || 0;
                   }
-                  return {
-                      ...item,
-                      priceInputCurrency: newCurrency, 
-                      unitPrice: newUnitPriceUSD,
-                      unitPriceDisplayUSD: newUnitPriceUSD.toFixed(4),
-                      unitPriceDisplayVES: exchangeRate > 0 ? (newUnitPriceUSD * exchangeRate).toFixed(2) : "0.00",
-                      subtotal: (item.quantity || 0) * newUnitPriceUSD,
-                  };
-              });
-              updatedSplit.items = updatedItemsForSplit;
-              const totalItemsUSD = (updatedSplit.items || []).reduce((sum, item) => sum + (item.subtotal || 0), 0);
-              if (updatedSplit.currency === 'VES') {
-                  updatedSplit.amount = parseFloat((totalItemsUSD * (updatedSplit.exchangeRateAtPayment || exchangeRate || 1)).toFixed(2));
-              } else {
-                  updatedSplit.amount = parseFloat(totalItemsUSD.toFixed(2));
+                }
               }
+              return {
+                ...item,
+                priceInputCurrency: newCurrency,
+                unitPrice: newUnitPriceUSD,
+                unitPriceDisplayUSD: newUnitPriceUSD.toFixed(4),
+                unitPriceDisplayVES: exchangeRate > 0 ? (newUnitPriceUSD * exchangeRate).toFixed(2) : "0.00",
+                subtotal: (item.quantity || 0) * newUnitPriceUSD,
+              };
+            });
+            updatedSplit.items = updatedItemsForSplit;
+            const totalItemsUSD = (updatedSplit.items || []).reduce((sum, item) => sum + (item.subtotal || 0), 0);
+            if (updatedSplit.currency === 'VES') {
+              updatedSplit.amount = parseFloat((totalItemsUSD * (updatedSplit.exchangeRateAtPayment || exchangeRate || 1)).toFixed(2));
+            } else {
+              updatedSplit.amount = parseFloat(totalItemsUSD.toFixed(2));
+            }
           }
 
         } else if (field === 'paymentMethod') {
@@ -1044,17 +1046,17 @@ export default function OrdersPage() {
           updatedSplit.paidToAccountId = availableAccounts[0] || (updatedSplit.currency === 'USD' ? 'usdCash' : 'vesElectronic');
         }
         if (field === 'paidToBranchId') {
-            if (updatedSplit.currency === 'USD') {
-                 updatedSplit.paymentMethod = 'Efectivo USD';
-                 updatedSplit.paidToAccountId = 'usdCash';
-            } else if (updatedSplit.currency === 'VES') {
-                if (updatedSplit.paymentMethod === 'Efectivo VES') {
-                    updatedSplit.paidToAccountId = 'vesCash';
-                } else { 
-                    updatedSplit.paymentMethod = 'Transferencia (VES)';
-                    updatedSplit.paidToAccountId = 'vesElectronic';
-                }
+          if (updatedSplit.currency === 'USD') {
+            updatedSplit.paymentMethod = 'Efectivo USD';
+            updatedSplit.paidToAccountId = 'usdCash';
+          } else if (updatedSplit.currency === 'VES') {
+            if (updatedSplit.paymentMethod === 'Efectivo VES') {
+              updatedSplit.paidToAccountId = 'vesCash';
+            } else {
+              updatedSplit.paymentMethod = 'Transferencia (VES)';
+              updatedSplit.paidToAccountId = 'vesElectronic';
             }
+          }
         }
         return updatedSplit;
       }
@@ -1094,8 +1096,8 @@ export default function OrdersPage() {
   const handleSubmitPO = () => {
     const activeBranchId = getActiveBranchId();
     if (!activeBranchId) {
-        toast({ title: "Error de Configuración", description: "No se ha seleccionado una sede activa para la orden de compra.", variant: "destructive" });
-        return;
+      toast({ title: "Error de Configuración", description: "No se ha seleccionado una sede activa para la orden de compra.", variant: "destructive" });
+      return;
     }
     setIsSubmitting(true);
     const supplierDetails = currentSuppliers.find(s => s.id === selectedSupplierId);
@@ -1104,19 +1106,19 @@ export default function OrdersPage() {
 
     const currentPOsForBranch = loadFromLocalStorageForBranch<PurchaseOrder[]>(KEYS.PURCHASE_ORDERS, activeBranchId);
     if (isEditingPO && originalPOForEdit) {
-        if (finalPOId.toLowerCase() !== originalPOForEdit.id.toLowerCase() && currentPOsForBranch.some(po => po.id.toLowerCase() === finalPOId.toLowerCase())) {
-            toast({ title: "Error", description: "El nuevo ID de OC ya existe para otra orden en esta sede.", variant: "destructive" });
-            setIsSubmitting(false); return;
-        }
+      if (finalPOId.toLowerCase() !== originalPOForEdit.id.toLowerCase() && currentPOsForBranch.some(po => po.id.toLowerCase() === finalPOId.toLowerCase())) {
+        toast({ title: "Error", description: "El nuevo ID de OC ya existe para otra orden en esta sede.", variant: "destructive" });
+        setIsSubmitting(false); return;
+      }
     } else {
-        if (currentPOsForBranch.some(po => po.id.toLowerCase() === finalPOId.toLowerCase())) {
-            toast({ title: "Error", description: "ID de OC ya existe en esta sede.", variant: "destructive" });
-            setIsSubmitting(false); return;
-        }
+      if (currentPOsForBranch.some(po => po.id.toLowerCase() === finalPOId.toLowerCase())) {
+        toast({ title: "Error", description: "ID de OC ya existe en esta sede.", variant: "destructive" });
+        setIsSubmitting(false); return;
+      }
     }
     const orderDateToUse = isEditingPO ? editOrderDate : orderDate;
     const expectedDeliveryToUse = isEditingPO ? editExpectedDelivery : expectedDelivery;
-    
+
     if (!supplierDetails || !orderDateToUse || !expectedDeliveryToUse) { toast({ title: "Error", description: "Proveedor y fechas obligatorios.", variant: "destructive" }); setIsSubmitting(false); return; }
 
     let itemsToProcessForPOStorage: PurchaseOrderItem[] = [];
@@ -1133,19 +1135,19 @@ export default function OrdersPage() {
       }
 
       finalPaymentSplits = validSplits.map(split => {
-          const totalItemsUSDForThisSplit = (split.items || []).reduce((sum, item) => sum + (item.subtotal || 0),0);
-          let splitAmountInSplitCurrency;
-          if (split.currency === 'VES') {
-              splitAmountInSplitCurrency = totalItemsUSDForThisSplit * (split.exchangeRateAtPayment || exchangeRate || 1);
-          } else { 
-              splitAmountInSplitCurrency = totalItemsUSDForThisSplit;
-          }
-          return {
-            ...split,
-            amount: parseFloat(splitAmountInSplitCurrency.toFixed(2)),
-            items: (split.items || []).filter(item => item.rawMaterialName && item.quantity > 0).map(item => ({
-              id: item.id, rawMaterialName: item.rawMaterialName, quantity: item.quantity, unit: item.unit, unitPrice: Number(item.unitPrice), subtotal: item.subtotal
-            }))
+        const totalItemsUSDForThisSplit = (split.items || []).reduce((sum, item) => sum + (item.subtotal || 0), 0);
+        let splitAmountInSplitCurrency;
+        if (split.currency === 'VES') {
+          splitAmountInSplitCurrency = totalItemsUSDForThisSplit * (split.exchangeRateAtPayment || exchangeRate || 1);
+        } else {
+          splitAmountInSplitCurrency = totalItemsUSDForThisSplit;
+        }
+        return {
+          ...split,
+          amount: parseFloat(splitAmountInSplitCurrency.toFixed(2)),
+          items: (split.items || []).filter(item => item.rawMaterialName && item.quantity > 0).map(item => ({
+            id: item.id, rawMaterialName: item.rawMaterialName, quantity: item.quantity, unit: item.unit, unitPrice: Number(item.unitPrice), subtotal: item.subtotal
+          }))
         }
       });
 
@@ -1154,9 +1156,9 @@ export default function OrdersPage() {
 
 
       if (finalPaymentSplits.some(s => {
-          const ref = s.referenceNumber?.trim();
-          return (s.paymentMethod === 'Pago Móvil (VES)' || s.paymentMethod === 'Transferencia (VES)') && ref && !/^\d{6}$/.test(ref);
-        })) {
+        const ref = s.referenceNumber?.trim();
+        return (s.paymentMethod === 'Pago Móvil (VES)' || s.paymentMethod === 'Transferencia (VES)') && ref && !/^\d{6}$/.test(ref);
+      })) {
         toast({ title: "Error de Referencia", description: "Si se ingresa una referencia para Pago Móvil/Transferencia, debe ser de 6 dígitos.", variant: "destructive" });
         setIsSubmitting(false); return;
       }
@@ -1169,9 +1171,9 @@ export default function OrdersPage() {
       itemsToProcessForPOStorage = validGlobalItems.map(item => ({ id: item.id, rawMaterialName: item.rawMaterialName, quantity: item.quantity, unit: item.unit, unitPrice: Number(item.unitPrice), subtotal: item.subtotal }));
       calculatedTotalCostUSD = calculateItemsTotalCost(validGlobalItems);
     }
-     if (itemsToProcessForPOStorage.length === 0) {
-        toast({ title: "Error", description: "La orden debe tener al menos un artículo válido.", variant: "destructive" });
-        setIsSubmitting(false); return;
+    if (itemsToProcessForPOStorage.length === 0) {
+      toast({ title: "Error", description: "La orden debe tener al menos un artículo válido.", variant: "destructive" });
+      setIsSubmitting(false); return;
     }
 
 
@@ -1182,7 +1184,7 @@ export default function OrdersPage() {
 
     if (isEditingPO && editingPOId && originalPOForEdit) {
       _revertPOFinancialEffects(originalPOForEdit, currentGlobalRate);
-      
+
       const updatedPOData: PurchaseOrder = {
         ...originalPOForEdit,
         id: finalPOId, supplierId: selectedSupplierId, supplierName: supplierDetails.name,
@@ -1190,9 +1192,9 @@ export default function OrdersPage() {
         expectedDelivery: format(expectedDeliveryToUse || new Date(), "yyyy-MM-dd"),
         items: currentOrderStatus !== 'Pagado' ? itemsToProcessForPOStorage : [],
         totalCost: calculatedTotalCostUSD, status: currentOrderStatus,
-        paymentSplits: finalPaymentSplits?.map(split => ({ 
-            ...split,
-            exchangeRateAtPayment: split.currency === 'VES' ? (split.exchangeRateAtPayment || currentGlobalRate || undefined) : undefined,
+        paymentSplits: finalPaymentSplits?.map(split => ({
+          ...split,
+          exchangeRateAtPayment: split.currency === 'VES' ? (split.exchangeRateAtPayment || currentGlobalRate || undefined) : undefined,
         })),
         timestamp: currentOrderStatus === 'Pagado' ? (originalPOForEdit.timestamp && originalPOForEdit.status === 'Pagado' ? originalPOForEdit.timestamp : currentTimestamp) : undefined,
         exchangeRateOnOrderDate: currentGlobalRate,
@@ -1200,7 +1202,7 @@ export default function OrdersPage() {
       };
 
       _applyPOFinancialEffects(updatedPOData, currentGlobalRate);
-      
+
       const filteredPOs = currentPOsForBranch.filter(p => p.id !== originalPOForEdit.id);
       updatedPOs = [updatedPOData, ...filteredPOs];
       toast({ title: "Éxito", description: "OC actualizada." });
@@ -1211,9 +1213,9 @@ export default function OrdersPage() {
         expectedDelivery: format(expectedDeliveryToUse || new Date(), "yyyy-MM-dd"),
         items: currentOrderStatus !== 'Pagado' ? itemsToProcessForPOStorage : [],
         totalCost: calculatedTotalCostUSD, status: currentOrderStatus,
-        paymentSplits: finalPaymentSplits?.map(split => ({ 
-            ...split,
-            exchangeRateAtPayment: split.currency === 'VES' ? (split.exchangeRateAtPayment || currentGlobalRate || undefined) : undefined,
+        paymentSplits: finalPaymentSplits?.map(split => ({
+          ...split,
+          exchangeRateAtPayment: split.currency === 'VES' ? (split.exchangeRateAtPayment || currentGlobalRate || undefined) : undefined,
         })),
         timestamp: currentOrderStatus === 'Pagado' ? currentTimestamp : undefined,
         exchangeRateOnOrderDate: currentGlobalRate,
@@ -1223,13 +1225,13 @@ export default function OrdersPage() {
       updatedPOs = [newPO, ...currentPOsForBranch];
       toast({ title: "Éxito", description: `OC ${newPO.status} creada.` });
     }
-    const sortedPOs = updatedPOs.sort((a,b) => {
-        const dateA = a.orderDate && isValid(parseISO(a.orderDate)) ? parseISO(a.orderDate).getTime() : 0;
-        const dateB = b.orderDate && isValid(parseISO(b.orderDate)) ? parseISO(b.orderDate).getTime() : 0;
-        if (dateA === 0 && dateB === 0) return 0;
-        if (dateA === 0) return 1;
-        if (dateB === 0) return -1;
-        return dateB - dateA;
+    const sortedPOs = updatedPOs.sort((a, b) => {
+      const dateA = a.orderDate && isValid(parseISO(a.orderDate)) ? parseISO(a.orderDate).getTime() : 0;
+      const dateB = b.orderDate && isValid(parseISO(b.orderDate)) ? parseISO(b.orderDate).getTime() : 0;
+      if (dateA === 0 && dateB === 0) return 0;
+      if (dateA === 0) return 1;
+      if (dateB === 0) return -1;
+      return dateB - dateA;
     });
     savePurchaseOrdersData(activeBranchId, sortedPOs);
     setAllPurchaseOrders(sortedPOs);
@@ -1240,67 +1242,67 @@ export default function OrdersPage() {
   const handleMarkAsPaid = (poId: string) => {
     const poToEdit = allPurchaseOrders.find(p => p.id === poId);
     if (poToEdit) {
-        if (poToEdit.status === 'Pagado') { toast({title: "Info", description: "Ya pagada.", variant: "default"}); return; }
-        handleOpenEditDialog(poToEdit);
-        setTimeout(() => {
-            setCurrentOrderStatus('Pagado');
-            const itemsForSplit = Array.isArray(editPaymentSplits) ? editPaymentSplits : [];
-            const itemsFromNonPaidOrder = poToEdit.items || [];
+      if (poToEdit.status === 'Pagado') { toast({ title: "Info", description: "Ya pagada.", variant: "default" }); return; }
+      handleOpenEditDialog(poToEdit);
+      setTimeout(() => {
+        setCurrentOrderStatus('Pagado');
+        const itemsForSplit = Array.isArray(editPaymentSplits) ? editPaymentSplits : [];
+        const itemsFromNonPaidOrder = poToEdit.items || [];
 
 
-            if (poToEdit.status !== 'Pagado' && itemsFromNonPaidOrder.length > 0 && itemsFromNonPaidOrder.some(it => it.rawMaterialName && it.quantity > 0)) {
-                const totalOrderItemsCostUSD = itemsFromNonPaidOrder.reduce((sum, item) => sum + item.subtotal, 0);
-                const activeBranchForPayment = getActiveBranchId() || (availableBranches.length > 0 ? availableBranches[0].id : '');
-                
-                const currentSplitsIds = itemsForSplit.map(sp => sp.id);
-                
-                let defaultSplitCurrency: 'VES' | 'USD' = 'VES';
-                let defaultSplitPaymentMethod: PaymentMethodType = 'Transferencia (VES)';
-                let defaultSplitAccountId: AccountType = 'vesElectronic';
-                
-                const supplierDetails = currentSuppliers.find(s => s.id === poToEdit.supplierId);
-                if (supplierDetails?.priceListUSDCash && supplierDetails.priceListUSDCash.length > 0 && exchangeRate > 0) {
-                     let usdMatchCount = 0;
-                    itemsFromNonPaidOrder.forEach(item => {
-                        const usdPriceItem = supplierDetails.priceListUSDCash?.find(pli => pli.rawMaterialName === item.rawMaterialName && pli.unit === item.unit);
-                        if (usdPriceItem && getCurrentPriceFromHistory(usdPriceItem.priceHistory)?.price === item.unitPrice) {
-                            usdMatchCount++;
-                        }
-                    });
-                    if (usdMatchCount > itemsFromNonPaidOrder.length / 2) {
-                        defaultSplitCurrency = 'USD';
-                        defaultSplitPaymentMethod = 'Efectivo USD';
-                        defaultSplitAccountId = 'usdCash';
-                    }
-                }
+        if (poToEdit.status !== 'Pagado' && itemsFromNonPaidOrder.length > 0 && itemsFromNonPaidOrder.some(it => it.rawMaterialName && it.quantity > 0)) {
+          const totalOrderItemsCostUSD = itemsFromNonPaidOrder.reduce((sum, item) => sum + item.subtotal, 0);
+          const activeBranchForPayment = getActiveBranchId() || (availableBranches.length > 0 ? availableBranches[0].id : '');
 
-                const newSplitAmount = defaultSplitCurrency === 'VES' ? totalOrderItemsCostUSD * (exchangeRate || 1) : totalOrderItemsCostUSD;
+          const currentSplitsIds = itemsForSplit.map(sp => sp.id);
 
-                setEditPaymentSplits([{
-                    id: generateUniqueItemId(`split-markpaid-auto`, currentSplitsIds),
-                    amount: parseFloat(newSplitAmount.toFixed(2)),
-                    currency: defaultSplitCurrency,
-                    paymentMethod: defaultSplitPaymentMethod,
-                    paidToBranchId: activeBranchForPayment,
-                    paidToAccountId: defaultSplitAccountId,
-                    referenceNumber: '',
-                    items: JSON.parse(JSON.stringify(itemsFromNonPaidOrder.filter(it => it.rawMaterialName && it.quantity > 0).map(item => ({
-                        id: item.id, rawMaterialName: item.rawMaterialName, quantity: item.quantity, unit: item.unit, unitPrice: Number(item.unitPrice), subtotal: item.subtotal
-                    }))))
-                }]);
-            } else if (!itemsForSplit || itemsForSplit.length === 0 || itemsForSplit.every(ps => !ps.items || ps.items.length === 0)) {
-                const activeBranchForPayment = getActiveBranchId() || (availableBranches.length > 0 ? availableBranches[0].id : '');
-                const currentSplitsIds = itemsForSplit.map(sp => sp.id);
-                 setEditPaymentSplits([{
-                    id: generateUniqueItemId(`split-markpaid-empty`, currentSplitsIds),
-                    amount: 0, currency: 'VES' as 'USD' | 'VES', paymentMethod: 'Transferencia (VES)' as PaymentMethodType,
-                    paidToBranchId: activeBranchForPayment, paidToAccountId: 'vesElectronic' as AccountType,
-                    referenceNumber: '', items: []
-                }]);
+          let defaultSplitCurrency: 'VES' | 'USD' = 'VES';
+          let defaultSplitPaymentMethod: PaymentMethodType = 'Transferencia (VES)';
+          let defaultSplitAccountId: AccountType = 'vesElectronic';
+
+          const supplierDetails = currentSuppliers.find(s => s.id === poToEdit.supplierId);
+          if (supplierDetails?.priceListUSDCash && supplierDetails.priceListUSDCash.length > 0 && exchangeRate > 0) {
+            let usdMatchCount = 0;
+            itemsFromNonPaidOrder.forEach(item => {
+              const usdPriceItem = supplierDetails.priceListUSDCash?.find(pli => pli.rawMaterialName === item.rawMaterialName && pli.unit === item.unit);
+              if (usdPriceItem && getCurrentPriceFromHistory(usdPriceItem.priceHistory)?.price === item.unitPrice) {
+                usdMatchCount++;
+              }
+            });
+            if (usdMatchCount > itemsFromNonPaidOrder.length / 2) {
+              defaultSplitCurrency = 'USD';
+              defaultSplitPaymentMethod = 'Efectivo USD';
+              defaultSplitAccountId = 'usdCash';
             }
-            toast({title: "Acción", description: "Estado cambiado a 'Pagado'. Verifica/Ajusta las formas de pago e ítems asociados y guarda."});
-        }, 150);
-    } else { toast({title: "Error", description: "OC no encontrada.", variant: "destructive"});}
+          }
+
+          const newSplitAmount = defaultSplitCurrency === 'VES' ? totalOrderItemsCostUSD * (exchangeRate || 1) : totalOrderItemsCostUSD;
+
+          setEditPaymentSplits([{
+            id: generateUniqueItemId(`split-markpaid-auto`, currentSplitsIds),
+            amount: parseFloat(newSplitAmount.toFixed(2)),
+            currency: defaultSplitCurrency,
+            paymentMethod: defaultSplitPaymentMethod,
+            paidToBranchId: activeBranchForPayment,
+            paidToAccountId: defaultSplitAccountId,
+            referenceNumber: '',
+            items: JSON.parse(JSON.stringify(itemsFromNonPaidOrder.filter(it => it.rawMaterialName && it.quantity > 0).map(item => ({
+              id: item.id, rawMaterialName: item.rawMaterialName, quantity: item.quantity, unit: item.unit, unitPrice: Number(item.unitPrice), subtotal: item.subtotal
+            }))))
+          }]);
+        } else if (!itemsForSplit || itemsForSplit.length === 0 || itemsForSplit.every(ps => !ps.items || ps.items.length === 0)) {
+          const activeBranchForPayment = getActiveBranchId() || (availableBranches.length > 0 ? availableBranches[0].id : '');
+          const currentSplitsIds = itemsForSplit.map(sp => sp.id);
+          setEditPaymentSplits([{
+            id: generateUniqueItemId(`split-markpaid-empty`, currentSplitsIds),
+            amount: 0, currency: 'VES' as 'USD' | 'VES', paymentMethod: 'Transferencia (VES)' as PaymentMethodType,
+            paidToBranchId: activeBranchForPayment, paidToAccountId: 'vesElectronic' as AccountType,
+            referenceNumber: '', items: []
+          }]);
+        }
+        toast({ title: "Acción", description: "Estado cambiado a 'Pagado'. Verifica/Ajusta las formas de pago e ítems asociados y guarda." });
+      }, 150);
+    } else { toast({ title: "Error", description: "OC no encontrada.", variant: "destructive" }); }
   };
 
   const handleOpenEditDialog = (po: PurchaseOrder) => {
@@ -1315,109 +1317,109 @@ export default function OrdersPage() {
     setEditPONotes(po.notes || '');
 
     if (po.status === 'Pagado' && po.paymentSplits && po.paymentSplits.length > 0) {
-        const processedSplitsData = JSON.parse(JSON.stringify(po.paymentSplits.map((split, splitIndex) => {
-            const itemsInThisSplitFromPO = split.items || [];
-            const processedItemsForThisSplit: PurchaseOrderItemExtended[] = [];
-            const idsUsedInThisSplitMapping = new Set<string>();
+      const processedSplitsData = JSON.parse(JSON.stringify(po.paymentSplits.map((split, splitIndex) => {
+        const itemsInThisSplitFromPO = split.items || [];
+        const processedItemsForThisSplit: PurchaseOrderItemExtended[] = [];
+        const idsUsedInThisSplitMapping = new Set<string>();
 
-            itemsInThisSplitFromPO.forEach((item: PurchaseOrderItem, itemIndex: number) => {
-                let itemId = item.id;
-                const currentIdsInProcessedItems = processedItemsForThisSplit.map(pi => pi.id);
-                if (!itemId || idsUsedInThisSplitMapping.has(itemId) || currentIdsInProcessedItems.includes(itemId)) {
-                    itemId = generateUniqueItemId(`edit-split${splitIndex}-item${itemIndex}`, [...currentIdsInProcessedItems, ...Array.from(idsUsedInThisSplitMapping)]);
-                }
-                idsUsedInThisSplitMapping.add(itemId);
-                processedItemsForThisSplit.push({
-                    id: itemId,
-                    rawMaterialName: item.rawMaterialName,
-                    quantity: item.quantity,
-                    unit: item.unit,
-                    unitPrice: Number(item.unitPrice),
-                    subtotal: item.subtotal,
-                    unitPriceDisplayUSD: (Number(item.unitPrice) || 0).toFixed(4),
-                    unitPriceDisplayVES: exchangeRate > 0 ? ((Number(item.unitPrice) || 0) * exchangeRate).toFixed(2) : "0.00",
-                    priceInputCurrency: split.currency,
-                    manualPriceEdit: false,
-                    bestPriceHint: ''
-                });
-            });
-            const existingSplitIdsForIdGen = po.paymentSplits?.map(s => s.id).filter(Boolean) as string[] || [];
-            return {
-                id: split.id || generateUniqueItemId(`edit-split${splitIndex}`, existingSplitIdsForIdGen),
-                amount: parseFloat(split.amount.toFixed(2)),
-                currency: split.currency,
-                paymentMethod: split.paymentMethod,
-                exchangeRateAtPayment: split.exchangeRateAtPayment,
-                paidToBranchId: split.paidToBranchId,
-                paidToAccountId: split.paidToAccountId,
-                referenceNumber: split.referenceNumber,
-                items: processedItemsForThisSplit
-            };
-        })));
-        setEditPaymentSplits(processedSplitsData);
-        const currentGlobalItemsIds = (Array.isArray(globalOrderItems) ? globalOrderItems : []).map(it => it.id);
-        setGlobalOrderItems([{ id: generateUniqueItemId('global-item-placeholder-edit', currentGlobalItemsIds), rawMaterialName: '', quantity: 0, unit: commonUnitOptions[0] || '', unitPrice: 0, subtotal: 0, bestPriceHint: '', manualPriceEdit: false, unitPriceDisplayUSD: "0", unitPriceDisplayVES: "0.00", priceInputCurrency: 'VES' }]);
-    } else {
-        const itemsFromPO = (po.items || []).map((itemOriginal, idx) => {
-            const item = JSON.parse(JSON.stringify(itemOriginal));
-            let itemId = item.id;
-            const existingItemIdsInPo = (po.items || []).map(i => i.id).filter(Boolean);
-            const itemsFromPOMap = new Map();
-            (po.items || []).forEach(i => itemsFromPOMap.set(i.id, (itemsFromPOMap.get(i.id) || 0) + 1));
-            if (!itemId || itemsFromPOMap.get(itemId) > 1) {
-                itemId = generateUniqueItemId(`edit-gitem-${idx}-${Date.now().toString().slice(-5)}`, []);
-            }
-            const poUnitPrice = Number(item.unitPrice);
-            const poQuantity = Number(item.quantity);
-            const validUnitPrice = !isNaN(poUnitPrice) && isFinite(poUnitPrice) ? poUnitPrice : 0;
-            const validQuantity = !isNaN(poQuantity) && isFinite(poQuantity) ? poQuantity : 0;
-            const poSubtotal = Number(item.subtotal);
-            const calculatedSubtotal = !isNaN(poSubtotal) && isFinite(poSubtotal) ? poSubtotal : (validUnitPrice * validQuantity);
-
-            return {
-                id: itemId,
-                rawMaterialName: item.rawMaterialName || '',
-                quantity: validQuantity,
-                unit: item.unit || (commonUnitOptions[0] || ''),
-                unitPrice: validUnitPrice,
-                subtotal: parseFloat(calculatedSubtotal.toFixed(4)),
-                unitPriceDisplayUSD: validUnitPrice.toFixed(4),
-                unitPriceDisplayVES: exchangeRate > 0 ? (validUnitPrice * exchangeRate).toFixed(2) : "0.00",
-                priceInputCurrency: 'USD' as 'USD' | 'VES',
-                manualPriceEdit: true,
-                bestPriceHint: ''
-            };
+        itemsInThisSplitFromPO.forEach((item: PurchaseOrderItem, itemIndex: number) => {
+          let itemId = item.id;
+          const currentIdsInProcessedItems = processedItemsForThisSplit.map(pi => pi.id);
+          if (!itemId || idsUsedInThisSplitMapping.has(itemId) || currentIdsInProcessedItems.includes(itemId)) {
+            itemId = generateUniqueItemId(`edit-split${splitIndex}-item${itemIndex}`, [...currentIdsInProcessedItems, ...Array.from(idsUsedInThisSplitMapping)]);
+          }
+          idsUsedInThisSplitMapping.add(itemId);
+          processedItemsForThisSplit.push({
+            id: itemId,
+            rawMaterialName: item.rawMaterialName,
+            quantity: item.quantity,
+            unit: item.unit,
+            unitPrice: Number(item.unitPrice),
+            subtotal: item.subtotal,
+            unitPriceDisplayUSD: (Number(item.unitPrice) || 0).toFixed(4),
+            unitPriceDisplayVES: exchangeRate > 0 ? ((Number(item.unitPrice) || 0) * exchangeRate).toFixed(2) : "0.00",
+            priceInputCurrency: split.currency,
+            manualPriceEdit: false,
+            bestPriceHint: ''
+          });
         });
-
-        if (itemsFromPO.length > 0) {
-            setGlobalOrderItems(itemsFromPO);
-        } else {
-            const currentGlobalItemsIds = (Array.isArray(globalOrderItems) ? globalOrderItems : []).map(it => it.id);
-            setGlobalOrderItems([{
-                id: generateUniqueItemId('global-item-placeholder-edit-noitems', currentGlobalItemsIds),
-                rawMaterialName: '',
-                quantity: 0,
-                unit: commonUnitOptions[0] || '',
-                unitPrice: 0,
-                subtotal: 0,
-                unitPriceDisplayUSD: "0.0000",
-                unitPriceDisplayVES: "0.00",
-                priceInputCurrency: 'USD' as 'USD' | 'VES',
-                manualPriceEdit: false,
-                bestPriceHint: ''
-            }]);
+        const existingSplitIdsForIdGen = po.paymentSplits?.map(s => s.id).filter(Boolean) as string[] || [];
+        return {
+          id: split.id || generateUniqueItemId(`edit-split${splitIndex}`, existingSplitIdsForIdGen),
+          amount: parseFloat(split.amount.toFixed(2)),
+          currency: split.currency,
+          paymentMethod: split.paymentMethod,
+          exchangeRateAtPayment: split.exchangeRateAtPayment,
+          paidToBranchId: split.paidToBranchId,
+          paidToAccountId: split.paidToAccountId,
+          referenceNumber: split.referenceNumber,
+          items: processedItemsForThisSplit
+        };
+      })));
+      setEditPaymentSplits(processedSplitsData);
+      const currentGlobalItemsIds = (Array.isArray(globalOrderItems) ? globalOrderItems : []).map(it => it.id);
+      setGlobalOrderItems([{ id: generateUniqueItemId('global-item-placeholder-edit', currentGlobalItemsIds), rawMaterialName: '', quantity: 0, unit: commonUnitOptions[0] || '', unitPrice: 0, subtotal: 0, bestPriceHint: '', manualPriceEdit: false, unitPriceDisplayUSD: "0", unitPriceDisplayVES: "0.00", priceInputCurrency: 'VES' }]);
+    } else {
+      const itemsFromPO = (po.items || []).map((itemOriginal, idx) => {
+        const item = JSON.parse(JSON.stringify(itemOriginal));
+        let itemId = item.id;
+        const existingItemIdsInPo = (po.items || []).map(i => i.id).filter(Boolean);
+        const itemsFromPOMap = new Map();
+        (po.items || []).forEach(i => itemsFromPOMap.set(i.id, (itemsFromPOMap.get(i.id) || 0) + 1));
+        if (!itemId || itemsFromPOMap.get(itemId) > 1) {
+          itemId = generateUniqueItemId(`edit-gitem-${idx}-${Date.now().toString().slice(-5)}`, []);
         }
-        
-        const activeBranchForPayment = getActiveBranchId() || (availableBranches.length > 0 ? availableBranches[0].id : '');
-        const initialSplitsForEdit = (po.paymentSplits && po.paymentSplits.length > 0)
-            ? JSON.parse(JSON.stringify(po.paymentSplits.map((ps, splitIndex) => { /* ... (mapeo complejo de paymentSplits) ... */ }))) // Mantener la lógica actual si existe
-            : [{
-                id: generateUniqueItemId(`split-default-edit-nonpaid-${Date.now().toString().slice(-4)}`, []),
-                amount: 0, currency: 'VES' as 'USD' | 'VES', paymentMethod: 'Transferencia (VES)' as PaymentMethodType,
-                paidToBranchId: activeBranchForPayment, paidToAccountId: 'vesElectronic' as AccountType,
-                referenceNumber: '', items: []
-            }];
-        setEditPaymentSplits(initialSplitsForEdit);
+        const poUnitPrice = Number(item.unitPrice);
+        const poQuantity = Number(item.quantity);
+        const validUnitPrice = !isNaN(poUnitPrice) && isFinite(poUnitPrice) ? poUnitPrice : 0;
+        const validQuantity = !isNaN(poQuantity) && isFinite(poQuantity) ? poQuantity : 0;
+        const poSubtotal = Number(item.subtotal);
+        const calculatedSubtotal = !isNaN(poSubtotal) && isFinite(poSubtotal) ? poSubtotal : (validUnitPrice * validQuantity);
+
+        return {
+          id: itemId,
+          rawMaterialName: item.rawMaterialName || '',
+          quantity: validQuantity,
+          unit: item.unit || (commonUnitOptions[0] || ''),
+          unitPrice: validUnitPrice,
+          subtotal: parseFloat(calculatedSubtotal.toFixed(4)),
+          unitPriceDisplayUSD: validUnitPrice.toFixed(4),
+          unitPriceDisplayVES: exchangeRate > 0 ? (validUnitPrice * exchangeRate).toFixed(2) : "0.00",
+          priceInputCurrency: 'USD' as 'USD' | 'VES',
+          manualPriceEdit: true,
+          bestPriceHint: ''
+        };
+      });
+
+      if (itemsFromPO.length > 0) {
+        setGlobalOrderItems(itemsFromPO);
+      } else {
+        const currentGlobalItemsIds = (Array.isArray(globalOrderItems) ? globalOrderItems : []).map(it => it.id);
+        setGlobalOrderItems([{
+          id: generateUniqueItemId('global-item-placeholder-edit-noitems', currentGlobalItemsIds),
+          rawMaterialName: '',
+          quantity: 0,
+          unit: commonUnitOptions[0] || '',
+          unitPrice: 0,
+          subtotal: 0,
+          unitPriceDisplayUSD: "0.0000",
+          unitPriceDisplayVES: "0.00",
+          priceInputCurrency: 'USD' as 'USD' | 'VES',
+          manualPriceEdit: false,
+          bestPriceHint: ''
+        }]);
+      }
+
+      const activeBranchForPayment = getActiveBranchId() || (availableBranches.length > 0 ? availableBranches[0].id : '');
+      const initialSplitsForEdit = (po.paymentSplits && po.paymentSplits.length > 0)
+        ? JSON.parse(JSON.stringify(po.paymentSplits.map((ps, splitIndex) => { /* ... (mapeo complejo de paymentSplits) ... */ }))) // Mantener la lógica actual si existe
+        : [{
+          id: generateUniqueItemId(`split-default-edit-nonpaid-${Date.now().toString().slice(-4)}`, []),
+          amount: 0, currency: 'VES' as 'USD' | 'VES', paymentMethod: 'Transferencia (VES)' as PaymentMethodType,
+          paidToBranchId: activeBranchForPayment, paidToAccountId: 'vesElectronic' as AccountType,
+          referenceNumber: '', items: []
+        }];
+      setEditPaymentSplits(initialSplitsForEdit);
     }
     setIsPODialogOpen(true);
   };
@@ -1434,11 +1436,11 @@ export default function OrdersPage() {
       if (poToDeleteDetails) {
         _revertPOFinancialEffects(poToDeleteDetails, exchangeRate);
       }
-      const updatedPOs = currentPOsForBranch.filter(p => p.id !== poToDeleteId).sort((a,b) => {
+      const updatedPOs = currentPOsForBranch.filter(p => p.id !== poToDeleteId).sort((a, b) => {
         const dateA = a.orderDate && isValid(parseISO(a.orderDate)) ? parseISO(a.orderDate).getTime() : 0;
         const dateB = b.orderDate && isValid(parseISO(b.orderDate)) ? parseISO(b.orderDate).getTime() : 0;
         if (dateA === 0 && dateB === 0) return 0; if (dateA === 0) return 1; if (dateB === 0) return -1; return dateB - dateA;
-    });
+      });
       savePurchaseOrdersData(activeBranchId, updatedPOs); setAllPurchaseOrders(updatedPOs);
       toast({ title: "Éxito", description: "OC eliminada." });
       setIsDeleteConfirmDialogOpen(false); setPoToDeleteId(null);
@@ -1457,8 +1459,8 @@ export default function OrdersPage() {
       const itemsDesc = split.items && split.items.length > 0 ? `(${split.items.length} art.)` : '(Sin art.)';
       const rate = split.currency === 'VES' ? (split.exchangeRateAtPayment || exchangeRate || 0) : 0;
       const amountOfSplitInUSD = split.items && split.items.length > 0
-                                 ? split.items.reduce((sum, item) => sum + (item.subtotal || 0), 0)
-                                 : (split.currency === 'USD' ? split.amount : (rate > 0 ? split.amount / rate : 0));
+        ? split.items.reduce((sum, item) => sum + (item.subtotal || 0), 0)
+        : (split.currency === 'USD' ? split.amount : (rate > 0 ? split.amount / rate : 0));
 
       return `${split.paymentMethod} ${split.currency} ${split.amount.toFixed(2)} ($${amountOfSplitInUSD.toFixed(2)} USD) ${itemsDesc}`;
     }).join('; ');
@@ -1466,11 +1468,11 @@ export default function OrdersPage() {
 
 
   const handleAddNewRawMaterial = () => {
-    if (!newMaterialName.trim()) { toast({ title: "Error", description: "Nombre vacío.", variant: "destructive"}); return; }
+    if (!newMaterialName.trim()) { toast({ title: "Error", description: "Nombre vacío.", variant: "destructive" }); return; }
     if (addRawMaterialOption(newMaterialName.trim())) {
       setCurrentRawMaterialOptions(getCurrentRawMaterialOptions());
-      toast({ title: "Éxito", description: `Materia "${newMaterialName.trim()}" añadida.`}); setNewMaterialName('');
-    } else { toast({ title: "Info", description: `Materia "${newMaterialName.trim()}" ya existe.`, variant: "default"}); }
+      toast({ title: "Éxito", description: `Materia "${newMaterialName.trim()}" añadida.` }); setNewMaterialName('');
+    } else { toast({ title: "Info", description: `Materia "${newMaterialName.trim()}" ya existe.`, variant: "default" }); }
   };
 
   const openDeleteMaterialConfirm = (option: string) => { setMaterialToDelete(option); setIsDeleteMaterialConfirmOpen(true); };
@@ -1478,14 +1480,14 @@ export default function OrdersPage() {
     if (materialToDelete) {
       removeRawMaterialOption(materialToDelete);
       setCurrentRawMaterialOptions(getCurrentRawMaterialOptions());
-      toast({ title: "Éxito", description: `Materia "${materialToDelete}" eliminada.`});
+      toast({ title: "Éxito", description: `Materia "${materialToDelete}" eliminada.` });
       setMaterialToDelete(null); setIsDeleteMaterialConfirmOpen(false);
     }
   };
 
   const handleFilterApply = () => { applyFilters(); };
-  const handleClearFilters = () => { 
-    setDateRangeFilter(undefined); 
+  const handleClearFilters = () => {
+    setDateRangeFilter(undefined);
     setFilterSupplierId(ALL_SUPPLIERS_FILTER_VALUE);
     setFilterOrderId('');
   };
@@ -1495,7 +1497,7 @@ export default function OrdersPage() {
     let branchSuffix = '';
     const currentBranchId = getActiveBranchId();
     if (baseName.includes("gastos") || baseName.includes("stock") || baseName.includes("materia_prima") || baseName.includes("ordenes_compra") || baseName.includes("merma") || baseName.includes("perdidas")) {
-        if (currentBranchId) branchSuffix = `_${currentBranchId}`;
+      if (currentBranchId) branchSuffix = `_${currentBranchId}`;
     }
 
     if (dateRangeFilter?.from) {
@@ -1517,16 +1519,16 @@ export default function OrdersPage() {
     const doc = new jsPDF() as jsPDFWithAutoTable;
 
     const rateToUseForPdf = (po.exchangeRateOnOrderDate && po.exchangeRateOnOrderDate > 0)
-        ? po.exchangeRateOnOrderDate
-        : exchangeRate; 
+      ? po.exchangeRateOnOrderDate
+      : exchangeRate;
 
     const formatVesForPdf = (usdPrice: number) => {
-        if (rateToUseForPdf > 0 && typeof usdPrice === 'number' && !isNaN(usdPrice)) {
-            return `Bs. ${(usdPrice * rateToUseForPdf).toFixed(2)}`;
-        }
-        return "Bs. --";
+      if (rateToUseForPdf > 0 && typeof usdPrice === 'number' && !isNaN(usdPrice)) {
+        return `Bs. ${(usdPrice * rateToUseForPdf).toFixed(2)}`;
+      }
+      return "Bs. --";
     };
-    
+
     doc.setFontSize(18); doc.text("Panificadora Valladares", 14, 22);
     doc.setFontSize(12); doc.text("Orden de Compra", 14, 30);
     doc.setFontSize(11); doc.text(`OC #: ${po.id}`, 14, 38);
@@ -1540,11 +1542,11 @@ export default function OrdersPage() {
     let startYContent = 72;
     if (supplier) {
       doc.text(`Proveedor: ${supplier.name}`, 14, startYContent); startYContent += 6;
-      if (supplier.contactPerson) {doc.text(`Atn: ${supplier.contactPerson}`, 14, startYContent); startYContent += 6;}
-      if (supplier.phone) {doc.text(`Tel: ${supplier.phone}`, 14, startYContent); startYContent += 6;}
-      if (supplier.email) {doc.text(`Email: ${supplier.email}`, 14, startYContent); startYContent += 6;}
-    } else { doc.text(`Proveedor: ${po.supplierName || 'Desconocido'}`, 14, startYContent); startYContent += 6;}
-    
+      if (supplier.contactPerson) { doc.text(`Atn: ${supplier.contactPerson}`, 14, startYContent); startYContent += 6; }
+      if (supplier.phone) { doc.text(`Tel: ${supplier.phone}`, 14, startYContent); startYContent += 6; }
+      if (supplier.email) { doc.text(`Email: ${supplier.email}`, 14, startYContent); startYContent += 6; }
+    } else { doc.text(`Proveedor: ${po.supplierName || 'Desconocido'}`, 14, startYContent); startYContent += 6; }
+
     if (po.notes) {
       startYContent += 2;
       doc.setFontSize(11);
@@ -1557,55 +1559,55 @@ export default function OrdersPage() {
       doc.text(splitNotes, 14, startYContent);
       startYContent += (splitNotes.length * 5) + 4;
     } else {
-        startYContent += 2;
+      startYContent += 2;
     }
 
 
     if (po.status === 'Pagado' && po.paymentSplits && po.paymentSplits.length > 0) {
-        doc.setFontSize(10);
-        doc.text("Formas de Pago y Artículos:", 14, startYContent); startYContent += 7;
+      doc.setFontSize(10);
+      doc.text("Formas de Pago y Artículos:", 14, startYContent); startYContent += 7;
 
-        po.paymentSplits.forEach((split, splitIndex) => {
-            doc.setFont("helvetica", "bold");
-            doc.text(`Forma de Pago ${splitIndex + 1}: ${split.paymentMethod} (${split.currency})`, 14, startYContent);
-            doc.setFont("helvetica", "normal");
-            startYContent += 5;
+      po.paymentSplits.forEach((split, splitIndex) => {
+        doc.setFont("helvetica", "bold");
+        doc.text(`Forma de Pago ${splitIndex + 1}: ${split.paymentMethod} (${split.currency})`, 14, startYContent);
+        doc.setFont("helvetica", "normal");
+        startYContent += 5;
 
-            const splitItemsTotalUSD = (split.items || []).reduce((s, i) => s + (i.subtotal || 0), 0);
-            const declaredPaymentAmountDisplay = split.currency === 'USD' ? `$${split.amount.toFixed(2)}` : `Bs.${split.amount.toFixed(2)}`;
-            
-            const rateForThisSplitDisplay = split.currency === 'VES' ? (split.exchangeRateAtPayment || rateToUseForPdf) : rateToUseForPdf;
-            const declaredPaymentAmountInUSD = split.currency === 'USD' 
-                ? split.amount 
-                : (rateForThisSplitDisplay > 0 ? split.amount / rateForThisSplitDisplay : 0);
+        const splitItemsTotalUSD = (split.items || []).reduce((s, i) => s + (i.subtotal || 0), 0);
+        const declaredPaymentAmountDisplay = split.currency === 'USD' ? `$${split.amount.toFixed(2)}` : `Bs.${split.amount.toFixed(2)}`;
+
+        const rateForThisSplitDisplay = split.currency === 'VES' ? (split.exchangeRateAtPayment || rateToUseForPdf) : rateToUseForPdf;
+        const declaredPaymentAmountInUSD = split.currency === 'USD'
+          ? split.amount
+          : (rateForThisSplitDisplay > 0 ? split.amount / rateForThisSplitDisplay : 0);
 
 
-            doc.text(`  Monto Pago Declarado: ${declaredPaymentAmountDisplay} (Equiv. ~$${declaredPaymentAmountInUSD.toFixed(2)} USD @ ${rateForThisSplitDisplay > 0 ? rateForThisSplitDisplay.toFixed(2) : 'N/A'})`, 16, startYContent);
-            startYContent += 5;
-            doc.text(`  Suma de Ítems en este Pago (USD): $${splitItemsTotalUSD.toFixed(2)}`, 16, startYContent);
-            startYContent += 5;
+        doc.text(`  Monto Pago Declarado: ${declaredPaymentAmountDisplay} (Equiv. ~$${declaredPaymentAmountInUSD.toFixed(2)} USD @ ${rateForThisSplitDisplay > 0 ? rateForThisSplitDisplay.toFixed(2) : 'N/A'})`, 16, startYContent);
+        startYContent += 5;
+        doc.text(`  Suma de Ítems en este Pago (USD): $${splitItemsTotalUSD.toFixed(2)}`, 16, startYContent);
+        startYContent += 5;
 
-            doc.text(`  Cuenta: ${accountTypeNames[split.paidToAccountId]} (Sede: ${availableBranches.find(b=>b.id===split.paidToBranchId)?.name || 'N/A'})`, 16, startYContent);
-            if (split.referenceNumber) { startYContent += 5; doc.text(`  Referencia: ${split.referenceNumber}`, 16, startYContent); }
-            startYContent += 7;
+        doc.text(`  Cuenta: ${accountTypeNames[split.paidToAccountId]} (Sede: ${availableBranches.find(b => b.id === split.paidToBranchId)?.name || 'N/A'})`, 16, startYContent);
+        if (split.referenceNumber) { startYContent += 5; doc.text(`  Referencia: ${split.referenceNumber}`, 16, startYContent); }
+        startYContent += 7;
 
-            const headItems = [["Material", "Cantidad", "Unidad", "P.Unit(USD)", "Subtotal(USD)"]];
-            const bodyItems = (split.items || []).map(item => ([ item.rawMaterialName, item.quantity, item.unit, `$${item.unitPrice.toFixed(4)}`, `$${item.subtotal.toFixed(4)}` ]));
-            if (bodyItems.length > 0) {
-                doc.autoTable({
-                    startY: startYContent, head: headItems, body: bodyItems, theme: 'grid', headStyles: { fillColor: [200, 200, 220], fontSize: 9 }, bodyStyles: { fontSize: 8 },
-                    didDrawPage: (data: any) => { startYContent = data.cursor?.y ? data.cursor.y + 5 : 20; }
-                });
-                startYContent = (doc as any).lastAutoTable.finalY + 10;
-            } else {
-                doc.text("  (Sin artículos asignados a esta forma de pago)", 16, startYContent); startYContent += 7;
-            }
-        });
+        const headItems = [["Material", "Cantidad", "Unidad", "P.Unit(USD)", "Subtotal(USD)"]];
+        const bodyItems = (split.items || []).map(item => ([item.rawMaterialName, item.quantity, item.unit, `$${item.unitPrice.toFixed(4)}`, `$${item.subtotal.toFixed(4)}`]));
+        if (bodyItems.length > 0) {
+          doc.autoTable({
+            startY: startYContent, head: headItems, body: bodyItems, theme: 'grid', headStyles: { fillColor: [200, 200, 220], fontSize: 9 }, bodyStyles: { fontSize: 8 },
+            didDrawPage: (data: any) => { startYContent = data.cursor?.y ? data.cursor.y + 5 : 20; }
+          });
+          startYContent = (doc as any).lastAutoTable.finalY + 10;
+        } else {
+          doc.text("  (Sin artículos asignados a esta forma de pago)", 16, startYContent); startYContent += 7;
+        }
+      });
     } else {
-        const head = [["Material", "Cantidad", "Unidad", "P.Unit(USD)", "Subtotal(USD)"]];
-        const body = po.items.map(item => ([ item.rawMaterialName, item.quantity, item.unit, `$${item.unitPrice.toFixed(4)}`, `$${item.subtotal.toFixed(4)}` ]));
-        doc.autoTable({ startY: startYContent, head: head, body: body, theme: 'striped', headStyles: { fillColor: [224, 122, 95] }, didDrawPage: function (data: any) { const pageCount = doc.getNumberOfPages ? doc.getNumberOfPages() : (doc.internal as any).getNumberOfPages(); doc.setFontSize(10); doc.text(`Página ${doc.getCurrentPageInfo ? doc.getCurrentPageInfo().pageNumber : (doc.internal as any).getCurrentPageInfo().pageNumber} de ${pageCount}`, (data.settings.margin as any).left || 14, (doc.internal as any).pageSize.height - 10); startYContent = data.cursor?.y ? data.cursor.y + 5 : 20; } });
-        startYContent = (doc as any).lastAutoTable.finalY || startYContent + 20;
+      const head = [["Material", "Cantidad", "Unidad", "P.Unit(USD)", "Subtotal(USD)"]];
+      const body = po.items.map(item => ([item.rawMaterialName, item.quantity, item.unit, `$${item.unitPrice.toFixed(4)}`, `$${item.subtotal.toFixed(4)}`]));
+      doc.autoTable({ startY: startYContent, head: head, body: body, theme: 'striped', headStyles: { fillColor: [224, 122, 95] }, didDrawPage: function (data: any) { const pageCount = doc.getNumberOfPages ? doc.getNumberOfPages() : (doc.internal as any).getNumberOfPages(); doc.setFontSize(10); doc.text(`Página ${doc.getCurrentPageInfo ? doc.getCurrentPageInfo().pageNumber : (doc.internal as any).getCurrentPageInfo().pageNumber} de ${pageCount}`, (data.settings.margin as any).left || 14, (doc.internal as any).pageSize.height - 10); startYContent = data.cursor?.y ? data.cursor.y + 5 : 20; } });
+      startYContent = (doc as any).lastAutoTable.finalY || startYContent + 20;
     }
 
     const finalY = startYContent;
@@ -1614,14 +1616,14 @@ export default function OrdersPage() {
     let totalVesPaid = 0;
     let totalUsdPaid = 0;
     if (po.status === 'Pagado' && po.paymentSplits && po.paymentSplits.length > 0) {
-        po.paymentSplits.forEach(split => {
-            if (split.currency === 'VES') totalVesPaid += split.amount;
-            else if (split.currency === 'USD') totalUsdPaid += split.amount;
-        });
+      po.paymentSplits.forEach(split => {
+        if (split.currency === 'VES') totalVesPaid += split.amount;
+        else if (split.currency === 'USD') totalUsdPaid += split.amount;
+      });
     }
     let summaryStartY = finalY + 18;
-    if (totalVesPaid > 0) { doc.setFontSize(10); doc.text(`Total Pagado (VES): Bs. ${totalVesPaid.toFixed(2)}`, 14, summaryStartY); summaryStartY +=6; }
-    if (totalUsdPaid > 0) { doc.setFontSize(10); doc.text(`Total Pagado (USD): $${totalUsdPaid.toFixed(2)}`, 14, summaryStartY); summaryStartY +=6; }
+    if (totalVesPaid > 0) { doc.setFontSize(10); doc.text(`Total Pagado (VES): Bs. ${totalVesPaid.toFixed(2)}`, 14, summaryStartY); summaryStartY += 6; }
+    if (totalUsdPaid > 0) { doc.setFontSize(10); doc.text(`Total Pagado (USD): $${totalUsdPaid.toFixed(2)}`, 14, summaryStartY); summaryStartY += 6; }
 
 
     doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.text(`Neto Factura (USD): $${po.totalCost.toFixed(4)}`, 14, summaryStartY);
@@ -1640,209 +1642,209 @@ export default function OrdersPage() {
 
   const handleAnalyzeInvoice = async () => {
     if (!invoiceFile) {
-        toast({ title: "Sin archivo", description: "Por favor, selecciona un archivo de imagen.", variant: "destructive" });
-        return;
+      toast({ title: "Sin archivo", description: "Por favor, selecciona un archivo de imagen.", variant: "destructive" });
+      return;
     }
     setIsAnalyzing(true);
     setIsSubmitting(true);
-    
+
     try {
-        const reader = new FileReader();
-        reader.readAsDataURL(invoiceFile);
-        reader.onload = async () => {
-            try {
-                const invoiceImageUri = reader.result as string;
+      const reader = new FileReader();
+      reader.readAsDataURL(invoiceFile);
+      reader.onload = async () => {
+        try {
+          const invoiceImageUri = reader.result as string;
 
-                const analysisInput: ProcessInvoiceInput = {
-                  invoiceImageUri,
-                  availableSuppliers: currentSuppliers.map(s => s.name),
-                  availableRawMaterials: currentRawMaterialOptions,
-                };
-                
-                const response = await processInvoice(analysisInput);
-                
-                const supplierFromAI = response.supplierName ? currentSuppliers.find(s => s.name === response.supplierName) : null;
-                const dateFromAI = response.orderDate && isValid(parseISO(response.orderDate)) ? parseISO(response.orderDate) : undefined;
-                if(dateFromAI) dateFromAI.setMinutes(dateFromAI.getMinutes() + dateFromAI.getTimezoneOffset());
-                
-                const finalItems: PurchaseOrderItemExtended[] = [];
-                if (Array.isArray(response.items)) {
-                    response.items.forEach((aiItem, index) => {
-                      const priceFromInvoiceVES = aiItem.unitPrice || 0;
-                      const invoiceUnit = aiItem.unit || 'unidad';
-                      let finalUnitPriceUSD = 0;
-                      let finalUnit = invoiceUnit;
-                      let priceFound = false;
-                      let bestPriceHint = '';
+          const analysisInput: ProcessInvoiceInput = {
+            invoiceImageUri,
+            availableSuppliers: currentSuppliers.map(s => s.name),
+            availableRawMaterials: currentRawMaterialOptions,
+          };
 
-                      if (supplierFromAI) {
-                        const priceListItem = supplierFromAI.priceList?.find(pli => pli.rawMaterialName === aiItem.description);
-                        if (priceListItem) {
-                          const latestPrice = getCurrentPriceFromHistory(priceListItem.priceHistory);
-                          if (latestPrice) {
-                            finalUnit = priceListItem.unit;
-                            finalUnitPriceUSD = latestPrice.price;
-                            priceFound = true;
-                          }
-                        }
-                      }
-                      
-                      if (!priceFound) {
-                        const rateForCalc = loadExchangeRate(dateFromAI || new Date());
-                        if (rateForCalc > 0 && priceFromInvoiceVES > 0) {
-                          finalUnitPriceUSD = priceFromInvoiceVES / rateForCalc;
-                          bestPriceHint = `No se encontró en lista de precios. Precio calculado desde factura. Unidad "${finalUnit}" extraída de factura. VERIFICAR.`;
-                        } else {
-                          bestPriceHint = `No se encontró precio de lista para este proveedor. Por favor, ingrésalo manualmente.`;
-                        }
-                      } else {
-                        const bestPriceInfoForAIItem = getBestPriceInfo(aiItem.description);
-                        if (bestPriceInfoForAIItem && supplierFromAI && bestPriceInfoForAIItem.supplierId === supplierFromAI.id) {
-                            bestPriceHint = `Este proveedor tiene el mejor precio.`;
-                        } else if (bestPriceInfoForAIItem) {
-                            bestPriceHint = `💡 Mejor opción: ${bestPriceInfoForAIItem.supplierName} a $${bestPriceInfoForAIItem.originalUnitPrice.toFixed(4)} por ${bestPriceInfoForAIItem.originalUnit}.`;
-                        } else {
-                            bestPriceHint = `Precio y unidad cargados desde la lista de precios de ${supplierFromAI?.name || 'proveedor actual'}.`;
-                        }
-                      }
-                      
-                      const itemQuantity = aiItem.quantity || 0;
-                      const newItem: PurchaseOrderItemExtended = {
-                          id: `ai-item-${Date.now()}-${index}`,
-                          rawMaterialName: aiItem.description,
-                          quantity: itemQuantity,
-                          unit: finalUnit,
-                          unitPrice: finalUnitPriceUSD,
-                          subtotal: itemQuantity * finalUnitPriceUSD,
-                          bestPriceHint: bestPriceHint,
-                          manualPriceEdit: !priceFound,
-                          unitPriceDisplayUSD: finalUnitPriceUSD.toFixed(4),
-                          unitPriceDisplayVES: exchangeRate > 0 ? (finalUnitPriceUSD * exchangeRate).toFixed(2) : "0.00",
-                          priceInputCurrency: 'VES'
-                      };
-                      finalItems.push(newItem);
-                    });
+          const response = await processInvoice(analysisInput);
+
+          const supplierFromAI = response.supplierName ? currentSuppliers.find(s => s.name === response.supplierName) : null;
+          const dateFromAI = response.orderDate && isValid(parseISO(response.orderDate)) ? parseISO(response.orderDate) : undefined;
+          if (dateFromAI) dateFromAI.setMinutes(dateFromAI.getMinutes() + dateFromAI.getTimezoneOffset());
+
+          const finalItems: PurchaseOrderItemExtended[] = [];
+          if (Array.isArray(response.items)) {
+            response.items.forEach((aiItem, index) => {
+              const priceFromInvoiceVES = aiItem.unitPrice || 0;
+              const invoiceUnit = aiItem.unit || 'unidad';
+              let finalUnitPriceUSD = 0;
+              let finalUnit = invoiceUnit;
+              let priceFound = false;
+              let bestPriceHint = '';
+
+              if (supplierFromAI) {
+                const priceListItem = supplierFromAI.priceList?.find(pli => pli.rawMaterialName === aiItem.description);
+                if (priceListItem) {
+                  const latestPrice = getCurrentPriceFromHistory(priceListItem.priceHistory);
+                  if (latestPrice) {
+                    finalUnit = priceListItem.unit;
+                    finalUnitPriceUSD = latestPrice.price;
+                    priceFound = true;
+                  }
                 }
-                
-                const splitsSetter = isEditingPO ? setEditPaymentSplits : setNewPaymentSplits;
-                
-                if (finalItems.length > 0) {
-                    if (currentOrderStatus === 'Pagado') {
-                        const totalCostFromAI = response.totalCost || 0;
-                        const activeBranch = getActiveBranchId() || (availableBranches.length > 0 ? availableBranches[0].id : '');
-                        splitsSetter([{
-                            id: `ai-split-${Date.now()}`,
-                            amount: totalCostFromAI, currency: 'VES', paymentMethod: 'Transferencia (VES)',
-                            paidToBranchId: activeBranch, paidToAccountId: 'vesElectronic',
-                            referenceNumber: '', items: finalItems,
-                        }]);
-                    } else {
-                        setGlobalOrderItems(finalItems);
-                    }
-                }
-                
-                if (supplierFromAI) setSelectedSupplierId(supplierFromAI.id);
-                if (isEditingPO) {
-                    if (response.invoiceId) setCurrentEditablePOId(response.invoiceId);
-                    if (dateFromAI) setEditOrderDate(dateFromAI);
+              }
+
+              if (!priceFound) {
+                const rateForCalc = loadExchangeRate(dateFromAI || new Date());
+                if (rateForCalc > 0 && priceFromInvoiceVES > 0) {
+                  finalUnitPriceUSD = priceFromInvoiceVES / rateForCalc;
+                  bestPriceHint = `No se encontró en lista de precios. Precio calculado desde factura. Unidad "${finalUnit}" extraída de factura. VERIFICAR.`;
                 } else {
-                    if (response.invoiceId) setNewOrderId(response.invoiceId);
-                    if (dateFromAI) setOrderDate(dateFromAI);
+                  bestPriceHint = `No se encontró precio de lista para este proveedor. Por favor, ingrésalo manualmente.`;
                 }
-                
-                toast({
-                    title: 'Análisis Completado',
-                    description: `${response.analysisNotes || 'Revisa los datos para confirmar.'}`,
-                    duration: 9000,
-                });
+              } else {
+                const bestPriceInfoForAIItem = getBestPriceInfo(aiItem.description);
+                if (bestPriceInfoForAIItem && supplierFromAI && bestPriceInfoForAIItem.supplierId === supplierFromAI.id) {
+                  bestPriceHint = `Este proveedor tiene el mejor precio.`;
+                } else if (bestPriceInfoForAIItem) {
+                  bestPriceHint = `💡 Mejor opción: ${bestPriceInfoForAIItem.supplierName} a $${bestPriceInfoForAIItem.originalUnitPrice.toFixed(4)} por ${bestPriceInfoForAIItem.originalUnit}.`;
+                } else {
+                  bestPriceHint = `Precio y unidad cargados desde la lista de precios de ${supplierFromAI?.name || 'proveedor actual'}.`;
+                }
+              }
 
-            } catch (aiError) {
-                 console.error("Error analyzing invoice (AI):", aiError);
-                 toast({ title: 'Error de Análisis', description: 'La IA no pudo procesar la factura. Inténtalo de nuevo con una imagen más clara o revisa la consola para más detalles.', variant: 'destructive' });
-            } finally {
-                setIsAnalyzing(false);
-                setIsSubmitting(false);
-                setInvoiceFile(null); 
-                const fileInput = document.getElementById('invoice_upload') as HTMLInputElement;
-                if(fileInput) fileInput.value = '';
+              const itemQuantity = aiItem.quantity || 0;
+              const newItem: PurchaseOrderItemExtended = {
+                id: `ai-item-${Date.now()}-${index}`,
+                rawMaterialName: aiItem.description,
+                quantity: itemQuantity,
+                unit: finalUnit,
+                unitPrice: finalUnitPriceUSD,
+                subtotal: itemQuantity * finalUnitPriceUSD,
+                bestPriceHint: bestPriceHint,
+                manualPriceEdit: !priceFound,
+                unitPriceDisplayUSD: finalUnitPriceUSD.toFixed(4),
+                unitPriceDisplayVES: exchangeRate > 0 ? (finalUnitPriceUSD * exchangeRate).toFixed(2) : "0.00",
+                priceInputCurrency: 'VES'
+              };
+              finalItems.push(newItem);
+            });
+          }
+
+          const splitsSetter = isEditingPO ? setEditPaymentSplits : setNewPaymentSplits;
+
+          if (finalItems.length > 0) {
+            if (currentOrderStatus === 'Pagado') {
+              const totalCostFromAI = response.totalCost || 0;
+              const activeBranch = getActiveBranchId() || (availableBranches.length > 0 ? availableBranches[0].id : '');
+              splitsSetter([{
+                id: `ai-split-${Date.now()}`,
+                amount: totalCostFromAI, currency: 'VES', paymentMethod: 'Transferencia (VES)',
+                paidToBranchId: activeBranch, paidToAccountId: 'vesElectronic',
+                referenceNumber: '', items: finalItems,
+              }]);
+            } else {
+              setGlobalOrderItems(finalItems);
             }
-        };
-        reader.onerror = (error) => {
-            console.error("Error reading file:", error);
-            toast({ title: 'Error de Lectura', description: 'No se pudo leer el archivo de imagen.', variant: 'destructive' });
-            setIsAnalyzing(false);
-            setIsSubmitting(false);
-        };
-    } catch (error) {
-        console.error("Error handling file:", error);
-        toast({ title: 'Error Inesperado', description: 'Ocurrió un error al manejar el archivo.', variant: 'destructive' });
+          }
+
+          if (supplierFromAI) setSelectedSupplierId(supplierFromAI.id);
+          if (isEditingPO) {
+            if (response.invoiceId) setCurrentEditablePOId(response.invoiceId);
+            if (dateFromAI) setEditOrderDate(dateFromAI);
+          } else {
+            if (response.invoiceId) setNewOrderId(response.invoiceId);
+            if (dateFromAI) setOrderDate(dateFromAI);
+          }
+
+          toast({
+            title: 'Análisis Completado',
+            description: `${response.analysisNotes || 'Revisa los datos para confirmar.'}`,
+            duration: 9000,
+          });
+
+        } catch (aiError) {
+          console.error("Error analyzing invoice (AI):", aiError);
+          toast({ title: 'Error de Análisis', description: 'La IA no pudo procesar la factura. Inténtalo de nuevo con una imagen más clara o revisa la consola para más detalles.', variant: 'destructive' });
+        } finally {
+          setIsAnalyzing(false);
+          setIsSubmitting(false);
+          setInvoiceFile(null);
+          const fileInput = document.getElementById('invoice_upload') as HTMLInputElement;
+          if (fileInput) fileInput.value = '';
+        }
+      };
+      reader.onerror = (error) => {
+        console.error("Error reading file:", error);
+        toast({ title: 'Error de Lectura', description: 'No se pudo leer el archivo de imagen.', variant: 'destructive' });
         setIsAnalyzing(false);
         setIsSubmitting(false);
+      };
+    } catch (error) {
+      console.error("Error handling file:", error);
+      toast({ title: 'Error Inesperado', description: 'Ocurrió un error al manejar el archivo.', variant: 'destructive' });
+      setIsAnalyzing(false);
+      setIsSubmitting(false);
     }
   };
 
 
   const renderGlobalItemsSection = (currentItems: PurchaseOrderItemExtended[]) => (
     <div className="space-y-2 border p-3 rounded-md">
-        <Label className="font-medium">Artículos de la Orden (Global)</Label>
-        {currentItems.map((item, index) => (
-            <div key={item.id} className="grid grid-cols-12 gap-x-2 gap-y-1 items-start border-b pb-3 mb-3 last:border-b-0 last:pb-0 last:mb-0">
-                <div className="col-span-12 sm:col-span-6 lg:col-span-2 space-y-0.5">
-                  {index === 0 && <Label htmlFor={`global_item_name_${item.id}_oc`} className="text-xs">Materia Prima</Label>}
-                  <Select value={item.rawMaterialName} onValueChange={(value) => handleItemChange(index, 'rawMaterialName', value)} disabled={isSubmitting}>
-                    <SelectTrigger id={`global_item_name_${item.id}_oc`} className="h-9"><SelectValue placeholder="Material" className="truncate" /></SelectTrigger>
-                    <SelectContent>{currentRawMaterialOptions.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
-                  </Select>
-                  {item.bestPriceHint && (
-                    <p className={cn("text-xs pt-1",
-                        item.bestPriceHint.startsWith("Este proveedor") ? "text-green-600 dark:text-green-500" :
-                        item.bestPriceHint.startsWith("💡") ? "text-amber-600 dark:text-amber-500" :
-                        "text-muted-foreground"
-                    )}>{item.bestPriceHint}</p>
-                  )}
-                </div>
-                <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">{index === 0 && <Label htmlFor={`global_item_quantity_${item.id}_oc`} className="text-xs">Cant.</Label>}<Input id={`global_item_quantity_${item.id}_oc`} type="number" placeholder="Cant." value={item.quantity ?? 0} onChange={(e) => handleItemChange(index, 'quantity', e.target.value)} min="0" className="h-9" disabled={isSubmitting} /></div>
-                <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">{index === 0 && <Label htmlFor={`global_item_unit_${item.id}_oc`} className="text-xs">Unidad</Label>}<Select value={item.unit} onValueChange={(value) => handleItemChange(index, 'unit', value)} disabled={isSubmitting}><SelectTrigger id={`global_item_unit_${item.id}_oc`} className="h-9"><SelectValue placeholder="Unidad" /></SelectTrigger><SelectContent>{commonUnitOptions.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></div>
-                <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">
-                    {index === 0 && <Label htmlFor={`global_item_price_currency_${item.id}_oc`} className="text-xs">Moneda P.U.</Label>}
-                    <Select value={item.priceInputCurrency} onValueChange={(value) => handleItemChange(index, 'priceInputCurrency', value)} disabled={isSubmitting}>
-                        <SelectTrigger id={`global_item_price_currency_${item.id}_oc`} className="h-9"><SelectValue /></SelectTrigger>
-                        <SelectContent><SelectItem value="VES" disabled={exchangeRate <= 0}>VES {exchangeRate <=0 ? '(Tasa no disp.)':''}</SelectItem><SelectItem value="USD">USD</SelectItem></SelectContent>
-                    </Select>
-                </div>
-                <div className="col-span-6 sm:col-span-3 lg:col-span-2 space-y-0.5">
-                    {index === 0 && <Label htmlFor={`global_item_unit_price_ves_${item.id}_oc`} className="text-xs">P. Unit (VES)</Label>}
-                    <Input id={`global_item_unit_price_ves_${item.id}_oc`} type="text" placeholder="Precio VES" value={item.unitPriceDisplayVES || ''} onChange={(e) => handleItemChange(index, 'unitPriceDisplayVES', e.target.value)} className="h-9" disabled={isSubmitting || item.priceInputCurrency !== 'VES' || exchangeRate <= 0}/>
-                </div>
-                 <div className="col-span-6 sm:col-span-3 lg:col-span-2 space-y-0.5">
-                    {index === 0 && <Label htmlFor={`global_item_unit_price_usd_${item.id}_oc`} className="text-xs">P. Unit (USD)</Label>}
-                    <Input id={`global_item_unit_price_usd_${item.id}_oc`} type="text" placeholder="Precio USD" value={item.unitPriceDisplayUSD || ''} onChange={(e) => handleItemChange(index, 'unitPriceDisplayUSD', e.target.value)} className="h-9" disabled={isSubmitting || item.priceInputCurrency !== 'USD'}/>
-                </div>
-                <div className="col-span-8 sm:col-span-2 lg:col-span-1 space-y-1 text-left sm:text-right">
-                    {index === 0 && <Label className="text-xs md:hidden">Subtotal (USD)</Label>} {index === 0 && <Label className="text-xs hidden md:block">Subtotal (USD)</Label>} {index > 0 && <div className="md:hidden h-5"></div>} {index > 0 && <div className="hidden md:block h-5"></div>}
-                    <div className="h-9 flex flex-col items-start sm:items-end justify-center">
-                        <p className="text-sm font-medium">
-                            <FormattedNumber value={item.subtotal} prefix="$" decimalPlaces={4} />
-                        </p>
-                        {item.subtotal > 0 && exchangeRate > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                                <FormattedNumber value={item.subtotal * exchangeRate} prefix="Bs. " />
-                            </p>
-                        )}
-                    </div>
-                </div>
-                <div className="col-span-4 sm:col-span-2 lg:col-span-2 flex items-center justify-end space-x-1">
-                    <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-primary hover:bg-primary/10 shrink-0"
-                      onClick={() => handleUpdateSupplierPriceListItemManually(selectedSupplierId, item.rawMaterialName, Number(item.unitPrice), item.unit, item.priceInputCurrency === 'USD' ? 'usdCash' : 'default')}
-                      disabled={isSubmitting || !selectedSupplierId || !item.rawMaterialName || item.unitPrice < 0 || !item.unit}
-                      title={`Guardar precio en lista ${item.priceInputCurrency === 'USD' ? 'USD Efectivo' : 'Estándar'} del proveedor`}>
-                      <SaveIcon className="h-4 w-4" />
-                    </Button>
-                    <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveGlobalItem(index)} className="h-9 w-9 text-destructive hover:bg-destructive/10" disabled={isSubmitting}><Trash className="h-4 w-4" /></Button>
-                </div>
+      <Label className="font-medium">Artículos de la Orden (Global)</Label>
+      {currentItems.map((item, index) => (
+        <div key={item.id} className="grid grid-cols-12 gap-x-2 gap-y-1 items-start border-b pb-3 mb-3 last:border-b-0 last:pb-0 last:mb-0">
+          <div className="col-span-12 sm:col-span-6 lg:col-span-2 space-y-0.5">
+            {index === 0 && <Label htmlFor={`global_item_name_${item.id}_oc`} className="text-xs">Materia Prima</Label>}
+            <Select value={item.rawMaterialName} onValueChange={(value) => handleItemChange(index, 'rawMaterialName', value)} disabled={isSubmitting}>
+              <SelectTrigger id={`global_item_name_${item.id}_oc`} className="h-9"><SelectValue placeholder="Material" className="truncate" /></SelectTrigger>
+              <SelectContent>{currentRawMaterialOptions.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
+            </Select>
+            {item.bestPriceHint && (
+              <p className={cn("text-xs pt-1",
+                item.bestPriceHint.startsWith("Este proveedor") ? "text-green-600 dark:text-green-500" :
+                  item.bestPriceHint.startsWith("💡") ? "text-amber-600 dark:text-amber-500" :
+                    "text-muted-foreground"
+              )}>{item.bestPriceHint}</p>
+            )}
+          </div>
+          <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">{index === 0 && <Label htmlFor={`global_item_quantity_${item.id}_oc`} className="text-xs">Cant.</Label>}<Input id={`global_item_quantity_${item.id}_oc`} type="number" placeholder="Cant." value={item.quantity ?? 0} onChange={(e) => handleItemChange(index, 'quantity', e.target.value)} min="0" className="h-9" disabled={isSubmitting} /></div>
+          <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">{index === 0 && <Label htmlFor={`global_item_unit_${item.id}_oc`} className="text-xs">Unidad</Label>}<Select value={item.unit} onValueChange={(value) => handleItemChange(index, 'unit', value)} disabled={isSubmitting}><SelectTrigger id={`global_item_unit_${item.id}_oc`} className="h-9"><SelectValue placeholder="Unidad" /></SelectTrigger><SelectContent>{commonUnitOptions.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></div>
+          <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">
+            {index === 0 && <Label htmlFor={`global_item_price_currency_${item.id}_oc`} className="text-xs">Moneda P.U.</Label>}
+            <Select value={item.priceInputCurrency} onValueChange={(value) => handleItemChange(index, 'priceInputCurrency', value)} disabled={isSubmitting}>
+              <SelectTrigger id={`global_item_price_currency_${item.id}_oc`} className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="VES" disabled={exchangeRate <= 0}>VES {exchangeRate <= 0 ? '(Tasa no disp.)' : ''}</SelectItem><SelectItem value="USD">USD</SelectItem></SelectContent>
+            </Select>
+          </div>
+          <div className="col-span-6 sm:col-span-3 lg:col-span-2 space-y-0.5">
+            {index === 0 && <Label htmlFor={`global_item_unit_price_ves_${item.id}_oc`} className="text-xs">P. Unit (VES)</Label>}
+            <Input id={`global_item_unit_price_ves_${item.id}_oc`} type="text" placeholder="Precio VES" value={item.unitPriceDisplayVES || ''} onChange={(e) => handleItemChange(index, 'unitPriceDisplayVES', e.target.value)} className="h-9" disabled={isSubmitting || item.priceInputCurrency !== 'VES' || exchangeRate <= 0} />
+          </div>
+          <div className="col-span-6 sm:col-span-3 lg:col-span-2 space-y-0.5">
+            {index === 0 && <Label htmlFor={`global_item_unit_price_usd_${item.id}_oc`} className="text-xs">P. Unit (USD)</Label>}
+            <Input id={`global_item_unit_price_usd_${item.id}_oc`} type="text" placeholder="Precio USD" value={item.unitPriceDisplayUSD || ''} onChange={(e) => handleItemChange(index, 'unitPriceDisplayUSD', e.target.value)} className="h-9" disabled={isSubmitting || item.priceInputCurrency !== 'USD'} />
+          </div>
+          <div className="col-span-8 sm:col-span-2 lg:col-span-1 space-y-1 text-left sm:text-right">
+            {index === 0 && <Label className="text-xs md:hidden">Subtotal (USD)</Label>} {index === 0 && <Label className="text-xs hidden md:block">Subtotal (USD)</Label>} {index > 0 && <div className="md:hidden h-5"></div>} {index > 0 && <div className="hidden md:block h-5"></div>}
+            <div className="h-9 flex flex-col items-start sm:items-end justify-center">
+              <p className="text-sm font-medium">
+                <FormattedNumber value={item.subtotal} prefix="$" decimalPlaces={4} />
+              </p>
+              {item.subtotal > 0 && exchangeRate > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  <FormattedNumber value={item.subtotal * exchangeRate} prefix="Bs. " />
+                </p>
+              )}
             </div>
-        ))}
-        <Button type="button" variant="outline" size="sm" onClick={handleAddGlobalItem} className="mt-2" disabled={isSubmitting || currentRawMaterialOptions.length === 0}><PlusCircle className="mr-2 h-4 w-4" /> Añadir Artículo</Button>
+          </div>
+          <div className="col-span-4 sm:col-span-2 lg:col-span-2 flex items-center justify-end space-x-1">
+            <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-primary hover:bg-primary/10 shrink-0"
+              onClick={() => handleUpdateSupplierPriceListItemManually(selectedSupplierId, item.rawMaterialName, Number(item.unitPrice), item.unit, item.priceInputCurrency === 'USD' ? 'usdCash' : 'default')}
+              disabled={isSubmitting || !selectedSupplierId || !item.rawMaterialName || item.unitPrice < 0 || !item.unit}
+              title={`Guardar precio en lista ${item.priceInputCurrency === 'USD' ? 'USD Efectivo' : 'Estándar'} del proveedor`}>
+              <SaveIcon className="h-4 w-4" />
+            </Button>
+            <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveGlobalItem(index)} className="h-9 w-9 text-destructive hover:bg-destructive/10" disabled={isSubmitting}><Trash className="h-4 w-4" /></Button>
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" onClick={handleAddGlobalItem} className="mt-2" disabled={isSubmitting || currentRawMaterialOptions.length === 0}><PlusCircle className="mr-2 h-4 w-4" /> Añadir Artículo</Button>
     </div>
   );
 
@@ -1851,20 +1853,20 @@ export default function OrdersPage() {
     const formTypeForSplits = isEditingPO ? 'edit' : 'new';
 
     const getPaymentMethodsForCurrency = (currency: 'USD' | 'VES'): PaymentMethodType[] => {
-        if (currency === 'USD') return ['Efectivo USD'];
-        if (currency === 'VES' && exchangeRate > 0) return ['Pago Móvil (VES)', 'Transferencia (VES)', 'Efectivo VES'];
-        if (currency === 'VES' && exchangeRate <= 0) return [];
-        return ['Otro'];
+      if (currency === 'USD') return ['Efectivo USD'];
+      if (currency === 'VES' && exchangeRate > 0) return ['Pago Móvil (VES)', 'Transferencia (VES)', 'Efectivo VES'];
+      if (currency === 'VES' && exchangeRate <= 0) return [];
+      return ['Otro'];
     };
-    
+
     const getAccountsForPaymentMethod = (currency: 'USD' | 'VES', method: PaymentMethodType): AccountType[] => {
-        if (currency === 'USD' && method === 'Efectivo USD') return ['usdCash'];
-        if (currency === 'VES' && exchangeRate > 0) {
-            if (method === 'Pago Móvil (VES)' || method === 'Transferencia (VES)') return ['vesElectronic'];
-            if (method === 'Efectivo VES') return ['vesCash'];
-        }
-        if ((currency === 'VES' && exchangeRate <= 0) || method === 'Otro') return [];
-        return Object.values(accountTypeNames).map((_, idx) => Object.keys(accountTypeNames)[idx] as AccountType);
+      if (currency === 'USD' && method === 'Efectivo USD') return ['usdCash'];
+      if (currency === 'VES' && exchangeRate > 0) {
+        if (method === 'Pago Móvil (VES)' || method === 'Transferencia (VES)') return ['vesElectronic'];
+        if (method === 'Efectivo VES') return ['vesCash'];
+      }
+      if ((currency === 'VES' && exchangeRate <= 0) || method === 'Otro') return [];
+      return Object.values(accountTypeNames).map((_, idx) => Object.keys(accountTypeNames)[idx] as AccountType);
     };
 
     return (
@@ -1873,7 +1875,7 @@ export default function OrdersPage() {
         {paymentSplitsToRender.map((split, index) => {
           const availablePaymentMethods = getPaymentMethodsForCurrency(split.currency);
           const availableAccounts = getAccountsForPaymentMethod(split.currency, split.paymentMethod);
-          
+
           const splitItemsTotalUSD = (split.items || []).reduce((sum, item) => sum + (item.subtotal || 0), 0);
           let splitAmountToDisplay = 0;
           if (split.currency === 'VES') {
@@ -1883,77 +1885,78 @@ export default function OrdersPage() {
           }
 
           return (
-          <div key={split.id} className="border-b pb-3 mb-3 last:border-b-0 last:pb-0 last:mb-0 bg-background p-2 rounded-md shadow-sm">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 items-end mb-2">
-              <div className="space-y-1 lg:col-span-1">
+            <div key={split.id} className="border-b pb-3 mb-3 last:border-b-0 last:pb-0 last:mb-0 bg-background p-2 rounded-md shadow-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 items-end mb-2">
+                <div className="space-y-1 lg:col-span-1">
                   <Label htmlFor={`split_amount_display_${split.id}`} className="text-xs">Monto Pago ({split.currency})</Label>
                   <div className="h-9 rounded-md bg-muted/50 px-3 flex items-center justify-end">
                     <FormattedNumber value={splitAmountToDisplay} prefix={split.currency === 'USD' ? '$' : 'Bs. '} />
                   </div>
-              </div>
-              <div className="space-y-1 lg:col-span-1">
+                </div>
+                <div className="space-y-1 lg:col-span-1">
                   <Label htmlFor={`split_currency_${split.id}`} className="text-xs">Moneda Pago</Label>
-                  <Select value={split.currency} onValueChange={val => handleSplitChange(split.id, 'currency', val, formTypeForSplits)} disabled={isSubmitting }>
-                      <SelectTrigger id={`split_currency_${split.id}`} className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                          <SelectItem value="USD">USD</SelectItem>
-                          <SelectItem value="VES" disabled={exchangeRate <= 0}>VES {exchangeRate <= 0 ? '(Tasa no disp.)' : ''}</SelectItem>
-                      </SelectContent>
+                  <Select value={split.currency} onValueChange={val => handleSplitChange(split.id, 'currency', val, formTypeForSplits)} disabled={isSubmitting}>
+                    <SelectTrigger id={`split_currency_${split.id}`} className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="USD">USD</SelectItem>
+                      <SelectItem value="VES" disabled={exchangeRate <= 0}>VES {exchangeRate <= 0 ? '(Tasa no disp.)' : ''}</SelectItem>
+                    </SelectContent>
                   </Select>
-              </div>
-              <div className="space-y-1 lg:col-span-1">
+                </div>
+                <div className="space-y-1 lg:col-span-1">
                   <Label htmlFor={`split_method_${split.id}`} className="text-xs">Método</Label>
                   <Select value={split.paymentMethod} onValueChange={val => handleSplitChange(split.id, 'paymentMethod', val, formTypeForSplits)} disabled={isSubmitting || availablePaymentMethods.length === 0}>
-                      <SelectTrigger id={`split_method_${split.id}`} className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                          {availablePaymentMethods.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                          {availablePaymentMethods.length === 0 && <SelectItem value="no-methods-available" disabled>N/A para moneda</SelectItem>}
-                      </SelectContent>
+                    <SelectTrigger id={`split_method_${split.id}`} className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {availablePaymentMethods.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                      {availablePaymentMethods.length === 0 && <SelectItem value="no-methods-available" disabled>N/A para moneda</SelectItem>}
+                    </SelectContent>
                   </Select>
+                </div>
+                {split.currency === 'VES' && (
+                  <div className="space-y-1 lg:col-span-1">
+                    <Label htmlFor={`split_exchange_rate_${split.id}`} className="text-xs">Tasa (Opc)</Label>
+                    <Input id={`split_exchange_rate_${split.id}`} type="number" value={split.exchangeRateAtPayment || ''} onChange={e => handleSplitChange(split.id, 'exchangeRateAtPayment', parseFloat(e.target.value) || undefined, formTypeForSplits)} placeholder={`Global: ${exchangeRate > 0 ? exchangeRate.toFixed(2) : 'N/A'}`} disabled={isSubmitting || exchangeRate <= 0} className="h-9" />
+                  </div>
+                )}
+                {(split.paymentMethod === 'Pago Móvil (VES)' || split.paymentMethod === 'Transferencia (VES)') && (
+                  <div className="space-y-1 lg:col-span-1">
+                    {index === 0 && <Label htmlFor={`split_ref_${split.id}`} className="text-xs">Ref. (6 dig)</Label>}
+                    <Input id={`split_ref_${split.id}`} value={split.referenceNumber || ''} onChange={e => handleSplitChange(split.id, 'referenceNumber', e.target.value, formTypeForSplits)} placeholder="123456" disabled={isSubmitting} className="h-9" maxLength={6} />
+                  </div>
+                )}
               </div>
-                       {split.currency === 'VES' && (
-                         <div className="space-y-1 lg:col-span-1">
-                            <Label htmlFor={`split_exchange_rate_${split.id}`} className="text-xs">Tasa (Opc)</Label>
-                            <Input id={`split_exchange_rate_${split.id}`} type="number" value={split.exchangeRateAtPayment || ''} onChange={e => handleSplitChange(split.id, 'exchangeRateAtPayment', parseFloat(e.target.value) || undefined, formTypeForSplits)} placeholder={`Global: ${exchangeRate > 0 ? exchangeRate.toFixed(2) : 'N/A'}`} disabled={isSubmitting || exchangeRate <=0} className="h-9"/>
-                        </div>
-                       )}
-                        {(split.paymentMethod === 'Pago Móvil (VES)' || split.paymentMethod === 'Transferencia (VES)') && (
-                            <div className="space-y-1 lg:col-span-1">
-                                {index === 0 && <Label htmlFor={`split_ref_${split.id}`} className="text-xs">Ref. (6 dig)</Label>}
-                                <Input id={`split_ref_${split.id}`} value={split.referenceNumber || ''} onChange={e => handleSplitChange(split.id, 'referenceNumber', e.target.value, formTypeForSplits)} placeholder="123456" disabled={isSubmitting} className="h-9" maxLength={6}/>
-                            </div>
-                        )}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
-              <div className="space-y-1 lg:col-span-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                <div className="space-y-1 lg:col-span-2">
                   <Label htmlFor={`split_branch_${split.id}`} className="text-xs">Sede Egreso</Label>
                   <Select value={split.paidToBranchId} onValueChange={val => handleSplitChange(split.id, 'paidToBranchId', val, formTypeForSplits)} disabled={isSubmitting}>
-                      <SelectTrigger id={`split_branch_${split.id}`} className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>{availableBranches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
+                    <SelectTrigger id={`split_branch_${split.id}`} className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>{availableBranches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
                   </Select>
-              </div>
-              <div className="space-y-1 lg:col-span-2">
+                </div>
+                <div className="space-y-1 lg:col-span-2">
                   <Label htmlFor={`split_account_${split.id}`} className="text-xs">Cuenta Egreso</Label>
-                    <Select value={split.paidToAccountId} onValueChange={val => handleSplitChange(split.id, 'paidToAccountId', val as AccountType, formTypeForSplits)} disabled={isSubmitting || availableAccounts.length === 0}>
-                      <SelectTrigger id={`split_account_${split.id}`} className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                          {availableAccounts.map(accId => {
-                              const accountDetails = loadFromLocalStorageForBranch<CompanyAccountsData>(KEYS.COMPANY_ACCOUNTS, split.paidToBranchId || '', true)[accId as AccountType];
-                              return (<SelectItem key={accId} value={accId}>{accountTypeNames[accId]} ({accountDetails?.currency})</SelectItem>);
-                          })}
-                          {availableAccounts.length === 0 && <SelectItem value="no-accounts-available" disabled>N/A para moneda/método</SelectItem>}
-                      </SelectContent>
+                  <Select value={split.paidToAccountId} onValueChange={val => handleSplitChange(split.id, 'paidToAccountId', val as AccountType, formTypeForSplits)} disabled={isSubmitting || availableAccounts.length === 0}>
+                    <SelectTrigger id={`split_account_${split.id}`} className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {availableAccounts.map(accId => {
+                        const accountDetails = loadFromLocalStorageForBranch<CompanyAccountsData>(KEYS.COMPANY_ACCOUNTS, split.paidToBranchId || '', true)[accId as AccountType];
+                        return (<SelectItem key={accId} value={accId}>{accountTypeNames[accId]} ({accountDetails?.currency})</SelectItem>);
+                      })}
+                      {availableAccounts.length === 0 && <SelectItem value="no-accounts-available" disabled>N/A para moneda/método</SelectItem>}
+                    </SelectContent>
                   </Select>
+                </div>
+                <div className="flex items-end justify-end lg:col-span-1">
+                  <Button type="button" variant="ghost" size="icon" onClick={() => handleRemovePaymentSplit(split.id, formTypeForSplits)} disabled={isSubmitting || paymentSplitsToRender.length <= 1} className="h-9 w-9 text-destructive hover:bg-destructive/10"><Trash className="h-4 w-4" /></Button>
+                </div>
               </div>
-              <div className="flex items-end justify-end lg:col-span-1">
-                <Button type="button" variant="ghost" size="icon" onClick={() => handleRemovePaymentSplit(split.id, formTypeForSplits)} disabled={isSubmitting || paymentSplitsToRender.length <=1} className="h-9 w-9 text-destructive hover:bg-destructive/10"><Trash className="h-4 w-4" /></Button>
-              </div>
+              {renderItemsForSplitSection(index, split.items || [])}
             </div>
-            {renderItemsForSplitSection(index, split.items || [])}
-          </div>
-        )})}
+          )
+        })}
         <Button type="button" variant="outline" size="sm" onClick={() => handleAddPaymentSplit(formTypeForSplits)} disabled={isSubmitting} className="mt-2">
-            <DollarSign className="mr-2 h-4 w-4" /> Añadir Forma de Pago
+          <DollarSign className="mr-2 h-4 w-4" /> Añadir Forma de Pago
         </Button>
       </div>
     );
@@ -1964,76 +1967,78 @@ export default function OrdersPage() {
     if (!currentSplit) return null;
     const currentSplitCurrency = currentSplit.currency;
     return (
-    <div className="space-y-2 border p-3 rounded-md mt-2 bg-muted/30">
+      <div className="space-y-2 border p-3 rounded-md mt-2 bg-muted/30">
         <Label className="font-medium text-xs">Artículos para esta Forma de Pago</Label>
         {currentItems.map((item, itemIndex) => {
-            return (
+          return (
             <div key={item.id} className="grid grid-cols-12 gap-x-2 gap-y-1 items-start border-b pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
-                <div className="col-span-12 sm:col-span-6 lg:col-span-2 space-y-0.5">
-                  {itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_name_${item.id}_oc`} className="text-xs">Materia Prima</Label>}
-                  <Select value={item.rawMaterialName} onValueChange={(value) => handleItemChange(itemIndex, 'rawMaterialName', value, splitIndex)} disabled={isSubmitting}>
-                    <SelectTrigger id={`split${splitIndex}_item_name_${item.id}_oc`} className="h-8 text-xs"><SelectValue placeholder="Material" className="truncate" /></SelectTrigger>
-                    <SelectContent>{currentRawMaterialOptions.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
-                  </Select>
-                  {item.bestPriceHint && (
-                    <p className={cn("text-xs pt-1",
-                        item.bestPriceHint.startsWith("Este proveedor") ? "text-green-600 dark:text-green-500" :
-                        item.bestPriceHint.startsWith("💡") ? "text-amber-600 dark:text-amber-500" :
+              <div className="col-span-12 sm:col-span-6 lg:col-span-2 space-y-0.5">
+                {itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_name_${item.id}_oc`} className="text-xs">Materia Prima</Label>}
+                <Select value={item.rawMaterialName} onValueChange={(value) => handleItemChange(itemIndex, 'rawMaterialName', value, splitIndex)} disabled={isSubmitting}>
+                  <SelectTrigger id={`split${splitIndex}_item_name_${item.id}_oc`} className="h-8 text-xs"><SelectValue placeholder="Material" className="truncate" /></SelectTrigger>
+                  <SelectContent>{currentRawMaterialOptions.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
+                </Select>
+                {item.bestPriceHint && (
+                  <p className={cn("text-xs pt-1",
+                    item.bestPriceHint.startsWith("Este proveedor") ? "text-green-600 dark:text-green-500" :
+                      item.bestPriceHint.startsWith("💡") ? "text-amber-600 dark:text-amber-500" :
                         "text-muted-foreground"
-                    )}>{item.bestPriceHint}</p>
+                  )}>{item.bestPriceHint}</p>
+                )}
+              </div>
+              <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">{itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_quantity_${item.id}_oc`} className="text-xs">Cant.</Label>}<Input id={`split${splitIndex}_item_quantity_${item.id}_oc`} type="number" placeholder="Cant." value={item.quantity ?? 0} onChange={(e) => handleItemChange(itemIndex, 'quantity', e.target.value, splitIndex)} min="0" className="h-8 text-xs" disabled={isSubmitting} /></div>
+              <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">{itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_unit_${item.id}_oc`} className="text-xs">Unidad</Label>}<Select value={item.unit} onValueChange={(value) => handleItemChange(itemIndex, 'unit', value, splitIndex)} disabled={isSubmitting}><SelectTrigger id={`split${splitIndex}_item_unit_${item.id}_oc`} className="h-8 text-xs"><SelectValue placeholder="Unidad" /></SelectTrigger><SelectContent>{commonUnitOptions.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></div>
+              <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">
+                {itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_price_currency_${item.id}_oc`} className="text-xs">Moneda P.U.</Label>}
+                <Select value={currentSplitCurrency} disabled={true}>
+                  <SelectTrigger id={`split${splitIndex}_item_price_currency_${item.id}_oc`} className="h-8 text-xs bg-muted/50"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="VES">VES</SelectItem><SelectItem value="USD">USD</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-6 sm:col-span-3 lg:col-span-2 space-y-0.5">
+                {itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_unit_price_ves_${item.id}_oc`} className="text-xs">P. Unit (VES)</Label>}
+                <Input id={`split${splitIndex}_item_unit_price_ves_${item.id}_oc`} type="text" placeholder="Precio VES" value={item.unitPriceDisplayVES || ''} onChange={(e) => handleItemChange(itemIndex, 'unitPriceDisplayVES', e.target.value, splitIndex)} className="h-8 text-xs" disabled={isSubmitting || currentSplitCurrency !== 'VES' || exchangeRate <= 0} />
+              </div>
+              <div className="col-span-6 sm:col-span-3 lg:col-span-2 space-y-0.5">
+                {itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_unit_price_usd_${item.id}_oc`} className="text-xs">P. Unit (USD)</Label>}
+                <Input id={`split${splitIndex}_item_unit_price_usd_${item.id}_oc`} type="text" placeholder="Precio USD" value={item.unitPriceDisplayUSD || ''} onChange={(e) => handleItemChange(itemIndex, 'unitPriceDisplayUSD', e.target.value, splitIndex)} className="h-8 text-xs" disabled={isSubmitting || currentSplitCurrency !== 'USD'} />
+              </div>
+              <div className="col-span-8 sm:col-span-2 lg:col-span-1 space-y-1 text-left sm:text-right">
+                {itemIndex === 0 && <Label className="text-xs md:hidden">Subtotal (USD)</Label>} {itemIndex === 0 && <Label className="text-xs hidden md:block">Subtotal (USD)</Label>} {itemIndex > 0 && <div className="md:hidden h-5"></div>} {itemIndex > 0 && <div className="hidden md:block h-5"></div>}
+                <div className="h-8 flex flex-col items-start sm:items-end justify-center">
+                  <p className="text-sm font-medium">
+                    <FormattedNumber value={item.subtotal} prefix="$" decimalPlaces={4} />
+                  </p>
+                  {item.subtotal > 0 && exchangeRate > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      <FormattedNumber value={item.subtotal * exchangeRate} prefix="Bs. " />
+                    </p>
                   )}
                 </div>
-                <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">{itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_quantity_${item.id}_oc`} className="text-xs">Cant.</Label>}<Input id={`split${splitIndex}_item_quantity_${item.id}_oc`} type="number" placeholder="Cant." value={item.quantity ?? 0} onChange={(e) => handleItemChange(itemIndex, 'quantity', e.target.value, splitIndex)} min="0" className="h-8 text-xs" disabled={isSubmitting} /></div>
-                <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">{itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_unit_${item.id}_oc`} className="text-xs">Unidad</Label>}<Select value={item.unit} onValueChange={(value) => handleItemChange(itemIndex, 'unit', value, splitIndex)} disabled={isSubmitting}><SelectTrigger id={`split${splitIndex}_item_unit_${item.id}_oc`} className="h-8 text-xs"><SelectValue placeholder="Unidad" /></SelectTrigger><SelectContent>{commonUnitOptions.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></div>
-                <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">
-                    {itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_price_currency_${item.id}_oc`} className="text-xs">Moneda P.U.</Label>}
-                    <Select value={currentSplitCurrency} disabled={true}>
-                        <SelectTrigger id={`split${splitIndex}_item_price_currency_${item.id}_oc`} className="h-8 text-xs bg-muted/50"><SelectValue /></SelectTrigger>
-                        <SelectContent><SelectItem value="VES">VES</SelectItem><SelectItem value="USD">USD</SelectItem></SelectContent>
-                    </Select>
-                </div>
-                <div className="col-span-6 sm:col-span-3 lg:col-span-2 space-y-0.5">
-                    {itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_unit_price_ves_${item.id}_oc`} className="text-xs">P. Unit (VES)</Label>}
-                    <Input id={`split${splitIndex}_item_unit_price_ves_${item.id}_oc`} type="text" placeholder="Precio VES" value={item.unitPriceDisplayVES || ''} onChange={(e) => handleItemChange(itemIndex, 'unitPriceDisplayVES', e.target.value, splitIndex)} className="h-8 text-xs" disabled={isSubmitting || currentSplitCurrency !== 'VES' || exchangeRate <= 0}/>
-                </div>
-                 <div className="col-span-6 sm:col-span-3 lg:col-span-2 space-y-0.5">
-                    {itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_unit_price_usd_${item.id}_oc`} className="text-xs">P. Unit (USD)</Label>}
-                    <Input id={`split${splitIndex}_item_unit_price_usd_${item.id}_oc`} type="text" placeholder="Precio USD" value={item.unitPriceDisplayUSD || ''} onChange={(e) => handleItemChange(itemIndex, 'unitPriceDisplayUSD', e.target.value, splitIndex)} className="h-8 text-xs" disabled={isSubmitting || currentSplitCurrency !== 'USD'}/>
-                </div>
-                <div className="col-span-8 sm:col-span-2 lg:col-span-1 space-y-1 text-left sm:text-right">
-                    {itemIndex === 0 && <Label className="text-xs md:hidden">Subtotal (USD)</Label>} {itemIndex === 0 && <Label className="text-xs hidden md:block">Subtotal (USD)</Label>} {itemIndex > 0 && <div className="md:hidden h-5"></div>} {itemIndex > 0 && <div className="hidden md:block h-5"></div>}
-                    <div className="h-8 flex flex-col items-start sm:items-end justify-center">
-                        <p className="text-sm font-medium">
-                            <FormattedNumber value={item.subtotal} prefix="$" decimalPlaces={4} />
-                        </p>
-                        {item.subtotal > 0 && exchangeRate > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                                <FormattedNumber value={item.subtotal * exchangeRate} prefix="Bs. " />
-                            </p>
-                        )}
-                    </div>
-                </div>
-                <div className="col-span-4 sm:col-span-2 lg:col-span-2 flex items-center justify-end space-x-1">
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-primary hover:bg-primary/10 shrink-0"
-                      onClick={() => handleUpdateSupplierPriceListItemManually(selectedSupplierId, item.rawMaterialName, Number(item.unitPrice), item.unit, currentSplitCurrency === 'USD' ? 'usdCash' : 'default')}
-                      disabled={isSubmitting || !selectedSupplierId || !item.rawMaterialName || item.unitPrice < 0 || !item.unit}
-                      title={`Guardar precio en lista ${currentSplitCurrency === 'USD' ? 'USD Efectivo' : 'Estándar'} del proveedor`}>
-                      <SaveIcon className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveItemFromSplit(splitIndex, itemIndex)} className="h-8 w-8 text-destructive hover:bg-destructive/10" disabled={isSubmitting}><Trash className="h-3.5 w-3.5" /></Button>
-                </div>
+              </div>
+              <div className="col-span-4 sm:col-span-2 lg:col-span-2 flex items-center justify-end space-x-1">
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-primary hover:bg-primary/10 shrink-0"
+                  onClick={() => handleUpdateSupplierPriceListItemManually(selectedSupplierId, item.rawMaterialName, Number(item.unitPrice), item.unit, currentSplitCurrency === 'USD' ? 'usdCash' : 'default')}
+                  disabled={isSubmitting || !selectedSupplierId || !item.rawMaterialName || item.unitPrice < 0 || !item.unit}
+                  title={`Guardar precio en lista ${currentSplitCurrency === 'USD' ? 'USD Efectivo' : 'Estándar'} del proveedor`}>
+                  <SaveIcon className="h-3.5 w-3.5" />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveItemFromSplit(splitIndex, itemIndex)} className="h-8 w-8 text-destructive hover:bg-destructive/10" disabled={isSubmitting}><Trash className="h-3.5 w-3.5" /></Button>
+              </div>
             </div>
-        )})}
+          )
+        })}
         <Button type="button" variant="outline" size="xs" className="mt-1" onClick={() => handleAddItemToSplit(splitIndex)} disabled={isSubmitting || currentRawMaterialOptions.length === 0}>
-            <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Añadir Artículo a este Pago
+          <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Añadir Artículo a este Pago
         </Button>
-    </div>
-  )};
+      </div>
+    )
+  };
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Gestión de Órdenes de Compra" description={`Optimiza tu proceso de compra. Aquí puedes comprar tanto Materia Prima como Productos de Reventa (ej. Catalinas). Los productos de reventa deben ser agregados primero en "Gestionar Materias Primas" y su receta debe tener marcada la opción "Es Producto de Reventa". Sede actual: ${availableBranches.find(b=>b.id === getActiveBranchId())?.name || 'No Seleccionada'}.`} icon={Receipt}
-        actions={ <div className="flex space-x-2"> <Button onClick={() => setIsManageMaterialsDialogOpen(true)} variant="outline" disabled={isSubmitting}><Settings className="mr-2 h-4 w-4" />Gestionar Materias Primas</Button> <Button onClick={() => setIsManageConversionsDialogOpen(true)} variant="outline" disabled={isSubmitting}><Settings2 className="mr-2 h-4 w-4" />Gestionar Conversiones (Global)</Button> <Button onClick={() => { resetAddForm(); setIsPODialogOpen(true); }} disabled={isSubmitting}><PlusCircle className="mr-2 h-4 w-4" />Crear Nueva OC</Button> </div> }
+      <PageHeader title="Gestión de Órdenes de Compra" description={`Optimiza tu proceso de compra. Aquí puedes comprar tanto Materia Prima como Productos de Reventa (ej. Catalinas). Los productos de reventa deben ser agregados primero en "Gestionar Materias Primas" y su receta debe tener marcada la opción "Es Producto de Reventa". Sede actual: ${availableBranches.find(b => b.id === getActiveBranchId())?.name || 'No Seleccionada'}.`} icon={Receipt}
+        actions={<div className="flex space-x-2"> <Button onClick={() => setIsManageMaterialsDialogOpen(true)} variant="outline" disabled={isSubmitting}><Settings className="mr-2 h-4 w-4" />Gestionar Materias Primas</Button> <Button onClick={() => setIsManageConversionsDialogOpen(true)} variant="outline" disabled={isSubmitting}><Settings2 className="mr-2 h-4 w-4" />Gestionar Conversiones (Global)</Button> <Button onClick={() => { resetAddForm(); setIsPODialogOpen(true); }} disabled={isSubmitting}><PlusCircle className="mr-2 h-4 w-4" />Crear Nueva OC</Button> </div>}
       />
       <Card className="shadow-lg">
         <CardHeader>
@@ -2043,36 +2048,36 @@ export default function OrdersPage() {
               <CardDescription>Registro de todas tus OCs para la sede actual.</CardDescription>
             </div>
             <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button id="date-filter-orders" variant={"outline"} className={cn("w-full sm:w-[260px] justify-start text-left font-normal",!dateRangeFilter && "text-muted-foreground")} disabled={isSubmitting}>
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dateRangeFilter?.from ? (dateRangeFilter.to ? (<>{format(dateRangeFilter.from, "LLL dd, y", { locale: es })} - {format(dateRangeFilter.to, "LLL dd, y", { locale: es })}</>) : (format(dateRangeFilter.from, "LLL dd, y", { locale: es }))) : (<span>Filtrar por Fecha</span>)}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="end">
-                    <Calendar initialFocus mode="range" defaultMonth={dateRangeFilter?.from} selected={dateRangeFilter} onSelect={setDateRangeFilter} numberOfMonths={2} locale={es} disabled={isSubmitting} />
-                  </PopoverContent>
-                </Popover>
-                <Select value={filterSupplierId} onValueChange={setFilterSupplierId} disabled={isSubmitting || isLoading}>
-                    <SelectTrigger className="w-full sm:w-[200px]"><SelectValue placeholder="Filtrar Proveedor" /></SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value={ALL_SUPPLIERS_FILTER_VALUE}>Todos los Proveedores</SelectItem>
-                        {currentSuppliers.sort((a,b) => a.name.localeCompare(b.name)).map(s => (<SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>))}
-                    </SelectContent>
-                </Select>
-                <div className="relative w-full sm:w-auto">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        type="search"
-                        placeholder="Buscar por ID de OC..."
-                        className="pl-8 sm:w-[200px]"
-                        value={filterOrderId}
-                        onChange={(e) => setFilterOrderId(e.target.value)}
-                        disabled={isSubmitting || isLoading}
-                    />
-                </div>
-                <Button onClick={handleClearFilters} variant="outline" className="w-full sm:w-auto" disabled={isSubmitting || isLoading}>Limpiar</Button>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button id="date-filter-orders" variant={"outline"} className={cn("w-full sm:w-[260px] justify-start text-left font-normal", !dateRangeFilter && "text-muted-foreground")} disabled={isSubmitting}>
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateRangeFilter?.from ? (dateRangeFilter.to ? (<>{format(dateRangeFilter.from, "LLL dd, y", { locale: es })} - {format(dateRangeFilter.to, "LLL dd, y", { locale: es })}</>) : (format(dateRangeFilter.from, "LLL dd, y", { locale: es }))) : (<span>Filtrar por Fecha</span>)}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar initialFocus mode="range" defaultMonth={dateRangeFilter?.from} selected={dateRangeFilter} onSelect={setDateRangeFilter} numberOfMonths={2} locale={es} disabled={isSubmitting} />
+                </PopoverContent>
+              </Popover>
+              <Select value={filterSupplierId} onValueChange={setFilterSupplierId} disabled={isSubmitting || isLoading}>
+                <SelectTrigger className="w-full sm:w-[200px]"><SelectValue placeholder="Filtrar Proveedor" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_SUPPLIERS_FILTER_VALUE}>Todos los Proveedores</SelectItem>
+                  {currentSuppliers.sort((a, b) => a.name.localeCompare(b.name)).map(s => (<SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>))}
+                </SelectContent>
+              </Select>
+              <div className="relative w-full sm:w-auto">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="search"
+                  placeholder="Buscar por ID de OC..."
+                  className="pl-8 sm:w-[200px]"
+                  value={filterOrderId}
+                  onChange={(e) => setFilterOrderId(e.target.value)}
+                  disabled={isSubmitting || isLoading}
+                />
+              </div>
+              <Button onClick={handleClearFilters} variant="outline" className="w-full sm:w-auto" disabled={isSubmitting || isLoading}>Limpiar</Button>
             </div>
           </div>
         </CardHeader>
@@ -2101,15 +2106,15 @@ export default function OrdersPage() {
                       </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={isSubmitting} title="Más Acciones"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                         <DropdownMenuContent align="end">
-                            {po.status !== 'Pagado' ? (
-                                <DropdownMenuItem onClick={() => handleMarkAsPaid(po.id)} disabled={isSubmitting}>
-                                <PackageCheck className="mr-2 h-4 w-4 text-green-600"/>Marcar Pagada
-                                </DropdownMenuItem>
-                            ) : null}
-                            <DropdownMenuItem onClick={() => generatePurchaseOrderPDF(po)} disabled={isSubmitting}><InvoiceIcon className="mr-2 h-4 w-4" />Generar PDF</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleOpenEditDialog(po)} disabled={isSubmitting}><Edit className="mr-2 h-4 w-4" />Editar</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleOpenDeleteDialog(po.id)} className="text-destructive focus:text-destructive-foreground focus:bg-destructive" disabled={isSubmitting}><Trash2 className="mr-2 h-4 w-4" />Eliminar</DropdownMenuItem>
+                        <DropdownMenuContent align="end">
+                          {po.status !== 'Pagado' ? (
+                            <DropdownMenuItem onClick={() => handleMarkAsPaid(po.id)} disabled={isSubmitting}>
+                              <PackageCheck className="mr-2 h-4 w-4 text-green-600" />Marcar Pagada
+                            </DropdownMenuItem>
+                          ) : null}
+                          <DropdownMenuItem onClick={() => generatePurchaseOrderPDF(po)} disabled={isSubmitting}><InvoiceIcon className="mr-2 h-4 w-4" />Generar PDF</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleOpenEditDialog(po)} disabled={isSubmitting}><Edit className="mr-2 h-4 w-4" />Editar</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleOpenDeleteDialog(po.id)} className="text-destructive focus:text-destructive-foreground focus:bg-destructive" disabled={isSubmitting}><Trash2 className="mr-2 h-4 w-4" />Eliminar</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -2121,42 +2126,42 @@ export default function OrdersPage() {
           {filteredPurchaseOrders.length === 0 && !isLoading && (<p className="text-center text-muted-foreground py-8">{dateRangeFilter?.from || filterSupplierId !== ALL_SUPPLIERS_FILTER_VALUE || filterOrderId ? "No hay OCs para filtros." : "No hay OCs."}</p>)}
         </CardContent>
       </Card>
-      <Dialog open={isPODialogOpen} onOpenChange={(isOpen) => { if(!isSubmitting) {setIsPODialogOpen(isOpen); if (!isOpen) resetAddForm();} }}><DialogContent className="sm:max-w-7xl max-h-[90vh]"><DialogHeader><DialogTitle>{isEditingPO ? "Editar OC" : "Crear Nueva OC"}</DialogTitle><DialogDescription>{isEditingPO ? "Actualiza detalles." : "Completa detalles."}</DialogDescription></DialogHeader>
+      <Dialog open={isPODialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) { setIsPODialogOpen(isOpen); if (!isOpen) resetAddForm(); } }}><DialogContent className="sm:max-w-7xl max-h-[90vh]"><DialogHeader><DialogTitle>{isEditingPO ? "Editar OC" : "Crear Nueva OC"}</DialogTitle><DialogDescription>{isEditingPO ? "Actualiza detalles." : "Completa detalles."}</DialogDescription></DialogHeader>
         <div className="p-4 border rounded-lg bg-muted/50">
           <Label className="font-semibold text-base">Autocompletar con Factura (Beta)</Label>
           <p className="text-sm text-muted-foreground mb-3">Sube una foto de la factura y la IA intentará rellenar los datos.</p>
           <div className="flex gap-2 items-center">
-              <Input
-                  id="invoice_upload"
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  disabled={isSubmitting}
-                  className="flex-grow"
-              />
-              <Button onClick={handleAnalyzeInvoice} disabled={isSubmitting || !invoiceFile}>
-                  {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
-                  {isSubmitting ? 'Analizando...' : 'Analizar'}
-              </Button>
+            <Input
+              id="invoice_upload"
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              disabled={isSubmitting}
+              className="flex-grow"
+            />
+            <Button onClick={handleAnalyzeInvoice} disabled={isSubmitting || !invoiceFile}>
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
+              {isSubmitting ? 'Analizando...' : 'Analizar'}
+            </Button>
           </div>
         </div>
-      <ScrollArea className="max-h-[calc(80vh-320px)] p-1 pr-3"><div className="grid gap-4 py-4 "><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="space-y-1"><Label htmlFor="po_id_input">ID OC (Factura)</Label><Input id="po_id_input" value={isEditingPO ? currentEditablePOId : newOrderId} onChange={(e) => { if (isEditingPO) { setCurrentEditablePOId(e.target.value); } else { setNewOrderId(e.target.value); }}} placeholder="FAC-00123" disabled={isSubmitting} /></div><div className="space-y-1"><Label htmlFor="supplier_select">Proveedor</Label><Select value={selectedSupplierId} onValueChange={setSelectedSupplierId} disabled={isSubmitting}><SelectTrigger id="supplier_select"><SelectValue placeholder="Selecciona" /></SelectTrigger><SelectContent>{currentSuppliers.sort((a,b) => a.name.localeCompare(b.name)).map(s => (<SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>))}</SelectContent></Select></div></div><div className="grid grid-cols-1 md:grid-cols-3 gap-4"><div className="space-y-1"><Label htmlFor="po_status_select">Estado</Label><Select value={currentOrderStatus} onValueChange={(value) => setCurrentOrderStatus(value as PurchaseOrderStatus)} disabled={isSubmitting}><SelectTrigger id="po_status_select"><SelectValue /></SelectTrigger><SelectContent>{purchaseOrderStatusList.map(s => (<SelectItem key={s} value={s}>{s}</SelectItem>))}</SelectContent></Select></div><div className="space-y-1"><Label htmlFor="order_date">Fecha Pedido</Label><Popover open={isOrderDatePickerOpen} onOpenChange={setIsOrderDatePickerOpen}><PopoverTrigger asChild><Button id="order_date" variant={"outline"} className={cn("w-full justify-start", !(isEditingPO ? editOrderDate : orderDate) && "text-muted-foreground")} disabled={isSubmitting}><CalendarIcon className="mr-2 h-4 w-4" />{(isEditingPO ? editOrderDate : orderDate) ? format((isEditingPO ? editOrderDate! : orderDate!), "PPP", { locale: es }) : <span>Elige</span>}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={isEditingPO ? editOrderDate : orderDate} onSelect={(date) => { if (isEditingPO) { setEditOrderDate(date); } else { setOrderDate(date); } setIsOrderDatePickerOpen(false); }} initialFocus locale={es} disabled={isSubmitting} /></PopoverContent></Popover></div><div className="space-y-1"><Label htmlFor="expected_delivery">Entrega Estimada</Label><Popover open={isDeliveryDatePickerOpen} onOpenChange={setIsDeliveryDatePickerOpen}><PopoverTrigger asChild><Button id="expected_delivery" variant={"outline"} className={cn("w-full justify-start", !(isEditingPO ? editExpectedDelivery : expectedDelivery) && "text-muted-foreground")} disabled={isSubmitting}><CalendarIcon className="mr-2 h-4 w-4" />{(isEditingPO ? editExpectedDelivery : expectedDelivery) ? format((isEditingPO ? editExpectedDelivery! : expectedDelivery!), "PPP", { locale: es }) : <span>Elige</span>}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={isEditingPO ? editExpectedDelivery : expectedDelivery} onSelect={(date) => { if (isEditingPO) { setEditExpectedDelivery(date); } else { setExpectedDelivery(date); } setIsDeliveryDatePickerOpen(false); }} initialFocus locale={es} disabled={isSubmitting} /></PopoverContent></Popover></div></div>
-        {currentOrderStatus === 'Pagado' ? renderPaymentSplitsSection() : renderGlobalItemsSection(globalOrderItems)}
-        <div className="space-y-1 mt-4">
+        <ScrollArea className="max-h-[calc(80vh-320px)] p-1 pr-3"><div className="grid gap-4 py-4 "><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="space-y-1"><Label htmlFor="po_id_input">ID OC (Factura)</Label><Input id="po_id_input" value={isEditingPO ? currentEditablePOId : newOrderId} onChange={(e) => { if (isEditingPO) { setCurrentEditablePOId(e.target.value); } else { setNewOrderId(e.target.value); } }} placeholder="FAC-00123" disabled={isSubmitting} /></div><div className="space-y-1"><Label htmlFor="supplier_select">Proveedor</Label><Select value={selectedSupplierId} onValueChange={setSelectedSupplierId} disabled={isSubmitting}><SelectTrigger id="supplier_select"><SelectValue placeholder="Selecciona" /></SelectTrigger><SelectContent>{currentSuppliers.sort((a, b) => a.name.localeCompare(b.name)).map(s => (<SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>))}</SelectContent></Select></div></div><div className="grid grid-cols-1 md:grid-cols-3 gap-4"><div className="space-y-1"><Label htmlFor="po_status_select">Estado</Label><Select value={currentOrderStatus} onValueChange={(value) => setCurrentOrderStatus(value as PurchaseOrderStatus)} disabled={isSubmitting}><SelectTrigger id="po_status_select"><SelectValue /></SelectTrigger><SelectContent>{purchaseOrderStatusList.map(s => (<SelectItem key={s} value={s}>{s}</SelectItem>))}</SelectContent></Select></div><div className="space-y-1"><Label htmlFor="order_date">Fecha Pedido</Label><Popover open={isOrderDatePickerOpen} onOpenChange={setIsOrderDatePickerOpen}><PopoverTrigger asChild><Button id="order_date" variant={"outline"} className={cn("w-full justify-start", !(isEditingPO ? editOrderDate : orderDate) && "text-muted-foreground")} disabled={isSubmitting}><CalendarIcon className="mr-2 h-4 w-4" />{(isEditingPO ? editOrderDate : orderDate) ? format((isEditingPO ? editOrderDate! : orderDate!), "PPP", { locale: es }) : <span>Elige</span>}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={isEditingPO ? editOrderDate : orderDate} onSelect={(date) => { if (isEditingPO) { setEditOrderDate(date); } else { setOrderDate(date); } setIsOrderDatePickerOpen(false); }} initialFocus locale={es} disabled={isSubmitting} /></PopoverContent></Popover></div><div className="space-y-1"><Label htmlFor="expected_delivery">Entrega Estimada</Label><Popover open={isDeliveryDatePickerOpen} onOpenChange={setIsDeliveryDatePickerOpen}><PopoverTrigger asChild><Button id="expected_delivery" variant={"outline"} className={cn("w-full justify-start", !(isEditingPO ? editExpectedDelivery : expectedDelivery) && "text-muted-foreground")} disabled={isSubmitting}><CalendarIcon className="mr-2 h-4 w-4" />{(isEditingPO ? editExpectedDelivery : expectedDelivery) ? format((isEditingPO ? editExpectedDelivery! : expectedDelivery!), "PPP", { locale: es }) : <span>Elige</span>}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={isEditingPO ? editExpectedDelivery : expectedDelivery} onSelect={(date) => { if (isEditingPO) { setEditExpectedDelivery(date); } else { setExpectedDelivery(date); } setIsDeliveryDatePickerOpen(false); }} initialFocus locale={es} disabled={isSubmitting} /></PopoverContent></Popover></div></div>
+          {currentOrderStatus === 'Pagado' ? renderPaymentSplitsSection() : renderGlobalItemsSection(globalOrderItems)}
+          <div className="space-y-1 mt-4">
             <Label htmlFor="po_notes">Observaciones (Opcional)</Label>
             <Textarea
-                id="po_notes"
-                value={isEditingPO ? editPONotes : newPONotes}
-                onChange={(e) => {
-                    if (isEditingPO) setEditPONotes(e.target.value);
-                    else setNewPONotes(e.target.value);
-                }}
-                placeholder="Anotaciones internas sobre la orden, condiciones de pago especiales, etc."
-                disabled={isSubmitting}
-                className="min-h-[60px]"
+              id="po_notes"
+              value={isEditingPO ? editPONotes : newPONotes}
+              onChange={(e) => {
+                if (isEditingPO) setEditPONotes(e.target.value);
+                else setNewPONotes(e.target.value);
+              }}
+              placeholder="Anotaciones internas sobre la orden, condiciones de pago especiales, etc."
+              disabled={isSubmitting}
+              className="min-h-[60px]"
             />
-        </div>
-        <div className="space-y-1 mt-4 text-right">
+          </div>
+          <div className="space-y-1 mt-4 text-right">
             {currentOrderStatus === 'Pagado' ? (
               (() => {
                 const splits = isEditingPO ? editPaymentSplits : newPaymentSplits;
@@ -2190,9 +2195,9 @@ export default function OrdersPage() {
                 )}
               </>
             )}
-        </div>
-      </div></ScrollArea><DialogFooter className="pt-2 border-t"><DialogClose asChild><Button variant="outline" onClick={() => { if(!isSubmitting) {setIsPODialogOpen(false); resetAddForm();}}} disabled={isSubmitting}>Cancelar</Button></DialogClose><Button type="button" onClick={handleSubmitPO} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : isEditingPO ? <Edit className="mr-2 h-4 w-4" /> : <PlusCircle className="mr-2 h-4 w-4" />}{isSubmitting ? 'Guardando...' : (isEditingPO ? "Guardar Cambios" : "Guardar OC")}</Button></DialogFooter></DialogContent></Dialog>
-      
+          </div>
+        </div></ScrollArea><DialogFooter className="pt-2 border-t"><DialogClose asChild><Button variant="outline" onClick={() => { if (!isSubmitting) { setIsPODialogOpen(false); resetAddForm(); } }} disabled={isSubmitting}>Cancelar</Button></DialogClose><Button type="button" onClick={handleSubmitPO} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : isEditingPO ? <Edit className="mr-2 h-4 w-4" /> : <PlusCircle className="mr-2 h-4 w-4" />}{isSubmitting ? 'Guardando...' : (isEditingPO ? "Guardar Cambios" : "Guardar OC")}</Button></DialogFooter></DialogContent></Dialog>
+
       <Dialog open={isViewPODialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsViewPODialogOpen(isOpen); }}>
         <DialogContent className="sm:max-w-2xl max-h-[85vh]">
           <DialogHeader>
@@ -2201,8 +2206,8 @@ export default function OrdersPage() {
           </DialogHeader>
           {poToViewDetails && (
             <>
-            <ScrollArea className="max-h-[calc(70vh-100px)] p-1 pr-3">
-              <div className="space-y-3 py-4 text-sm">
+              <ScrollArea className="max-h-[calc(70vh-100px)] p-1 pr-3">
+                <div className="space-y-3 py-4 text-sm">
                   <div className="grid grid-cols-[max-content_1fr] gap-x-3 items-baseline">
                     <Label className="font-semibold">Proveedor:</Label>
                     <span>{poToViewDetails.supplierName}</span>
@@ -2215,7 +2220,7 @@ export default function OrdersPage() {
                     <Label className="font-semibold">Entrega Estimada:</Label>
                     <span>{poToViewDetails.expectedDelivery && isValid(parseISO(poToViewDetails.expectedDelivery)) ? format(parseISO(poToViewDetails.expectedDelivery), "dd/MM/yyyy", { locale: es }) : '-'}</span>
                   </div>
-                   <div className="grid grid-cols-[max-content_1fr] gap-x-3 items-baseline">
+                  <div className="grid grid-cols-[max-content_1fr] gap-x-3 items-baseline">
                     <Label className="font-semibold">Sede Compra:</Label>
                     <span>{availableBranches.find(b => b.id === getActiveBranchId())?.name || 'Desconocida'}</span>
                   </div>
@@ -2232,8 +2237,8 @@ export default function OrdersPage() {
 
                   {poToViewDetails.notes && (
                     <div className="pt-2">
-                        <Label className="font-semibold">Observaciones:</Label>
-                        <p className="text-sm whitespace-pre-wrap bg-muted/50 p-2 rounded-md border mt-1">{poToViewDetails.notes}</p>
+                      <Label className="font-semibold">Observaciones:</Label>
+                      <p className="text-sm whitespace-pre-wrap bg-muted/50 p-2 rounded-md border mt-1">{poToViewDetails.notes}</p>
                     </div>
                   )}
 
@@ -2246,22 +2251,22 @@ export default function OrdersPage() {
                           <p className="text-xs font-semibold mb-1">Forma de Pago {index + 1}: {split.paymentMethod} ({split.currency})</p>
                           <p className="text-xs text-muted-foreground">Monto Pago Declarado: <FormattedNumber value={split.amount} prefix={split.currency === 'USD' ? '$' : 'Bs. '} /></p>
                           <p className="text-xs text-muted-foreground">Suma Ítems en Pago (USD): <FormattedNumber value={(split.items || []).reduce((sum, item) => sum + (item.subtotal || 0), 0)} prefix="$" decimalPlaces={4} /></p>
-                          <p className="text-xs text-muted-foreground">Cuenta: {accountTypeNames[split.paidToAccountId]} (Sede: {availableBranches.find(b=>b.id===split.paidToBranchId)?.name || 'N/A'})</p>
+                          <p className="text-xs text-muted-foreground">Cuenta: {accountTypeNames[split.paidToAccountId]} (Sede: {availableBranches.find(b => b.id === split.paidToBranchId)?.name || 'N/A'})</p>
                           {split.referenceNumber && <p className="text-xs text-muted-foreground">Referencia: {split.referenceNumber}</p>}
-                          
+
                           <Table className="text-xs mt-1.5"><TableHeader><TableRow><TableHead>Material</TableHead><TableHead className="text-right">Cant.</TableHead><TableHead>Unidad</TableHead><TableHead className="text-right">P.Unit(USD)</TableHead><TableHead className="text-right">Subtotal(USD)</TableHead></TableRow></TableHeader>
-                            <TableBody>{(split.items || []).map(item => (<TableRow key={item.id}><TableCell>{item.rawMaterialName}</TableCell><TableCell className="text-right"><FormattedNumber value={item.quantity} decimalPlaces={3}/></TableCell><TableCell>{item.unit}</TableCell><TableCell className="text-right"><FormattedNumber value={item.unitPrice} prefix="$" decimalPlaces={4}/></TableCell><TableCell className="text-right"><FormattedNumber value={item.subtotal} prefix="$" decimalPlaces={4}/></TableCell></TableRow>))}</TableBody>
+                            <TableBody>{(split.items || []).map(item => (<TableRow key={item.id}><TableCell>{item.rawMaterialName}</TableCell><TableCell className="text-right"><FormattedNumber value={item.quantity} decimalPlaces={3} /></TableCell><TableCell>{item.unit}</TableCell><TableCell className="text-right"><FormattedNumber value={item.unitPrice} prefix="$" decimalPlaces={4} /></TableCell><TableCell className="text-right"><FormattedNumber value={item.subtotal} prefix="$" decimalPlaces={4} /></TableCell></TableRow>))}</TableBody>
                           </Table>
                         </div>
                       ))
                     ) : (
                       <Table><TableHeader><TableRow><TableHead>Material</TableHead><TableHead className="text-right">Cant.</TableHead><TableHead>Unidad</TableHead><TableHead className="text-right">P.Unit(USD)</TableHead><TableHead className="text-right">Subtotal(USD)</TableHead></TableRow></TableHeader>
-                        <TableBody>{poToViewDetails.items.map(item => (<TableRow key={item.id}><TableCell>{item.rawMaterialName}</TableCell><TableCell className="text-right"><FormattedNumber value={item.quantity} decimalPlaces={3}/></TableCell><TableCell>{item.unit}</TableCell><TableCell className="text-right"><FormattedNumber value={item.unitPrice} prefix="$" decimalPlaces={4}/></TableCell><TableCell className="text-right"><FormattedNumber value={item.subtotal} prefix="$" decimalPlaces={4}/></TableCell></TableRow>))}</TableBody>
+                        <TableBody>{poToViewDetails.items.map(item => (<TableRow key={item.id}><TableCell>{item.rawMaterialName}</TableCell><TableCell className="text-right"><FormattedNumber value={item.quantity} decimalPlaces={3} /></TableCell><TableCell>{item.unit}</TableCell><TableCell className="text-right"><FormattedNumber value={item.unitPrice} prefix="$" decimalPlaces={4} /></TableCell><TableCell className="text-right"><FormattedNumber value={item.subtotal} prefix="$" decimalPlaces={4} /></TableCell></TableRow>))}</TableBody>
                       </Table>
                     )}
                   </div>
                   <Separator className="my-3" />
-                   <div className="mt-3 text-right">
+                  <div className="mt-3 text-right">
                     {poToViewDetails.status === 'Pagado' && poToViewDetails.paymentSplits && poToViewDetails.paymentSplits.length > 0 ? (
                       (() => {
                         const totalAmountVES_footer_view = poToViewDetails.paymentSplits
@@ -2288,25 +2293,25 @@ export default function OrdersPage() {
                       <>
                         <p className="font-semibold text-base">Costo Total (USD): <FormattedNumber value={poToViewDetails.totalCost} prefix="$" decimalPlaces={4} /></p>
                         {poToViewDetails.totalCost > 0 && (poToViewDetails.exchangeRateOnOrderDate || exchangeRate) > 0 && (
-                            <p className="text-xs text-muted-foreground"><FormattedNumber value={poToViewDetails.totalCost * (poToViewDetails.exchangeRateOnOrderDate || exchangeRate)} prefix="Bs. " /></p>
+                          <p className="text-xs text-muted-foreground"><FormattedNumber value={poToViewDetails.totalCost * (poToViewDetails.exchangeRateOnOrderDate || exchangeRate)} prefix="Bs. " /></p>
                         )}
                       </>
                     )}
                   </div>
                 </div>
-            </ScrollArea>
-            <DialogFooter className="pt-4 border-t">
+              </ScrollArea>
+              <DialogFooter className="pt-4 border-t">
                 <DialogClose asChild><Button variant="outline">Cerrar</Button></DialogClose>
                 <Button onClick={() => generatePurchaseOrderPDF(poToViewDetails)} disabled={isSubmitting}><InvoiceIcon className="mr-2 h-4 w-4" />Generar PDF</Button>
-            </DialogFooter>
+              </DialogFooter>
             </>
           )}
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDeleteConfirmDialogOpen} onOpenChange={(isOpen) => { if(!isSubmitting) setIsDeleteConfirmDialogOpen(isOpen)}}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Confirmar Eliminación</DialogTitle><DialogDescription>¿Eliminar OC? Ajustará stock/cuentas si estaba pagada.</DialogDescription></DialogHeader><DialogFooter className="sm:justify-end"><DialogClose asChild><Button variant="outline" onClick={() => {if(!isSubmitting) {setIsDeleteConfirmDialogOpen(false); setPoToDeleteId(null)}}} disabled={isSubmitting}>Cancelar</Button></DialogClose><Button variant="destructive" onClick={handleConfirmDelete} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}{isSubmitting ? 'Eliminando...' : 'Eliminar OC'}</Button></DialogFooter></DialogContent></Dialog>
-      <Dialog open={isManageMaterialsDialogOpen} onOpenChange={(isOpen) => { if(!isSubmitting) setIsManageMaterialsDialogOpen(isOpen); }}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>Gestionar Materias Primas y Productos de Reventa</DialogTitle><DialogDescription>Añade/elimina opciones de la lista global. Los productos de reventa también deben añadirse aquí para poder incluirlos en Órdenes de Compra.</DialogDescription></DialogHeader><div className="grid gap-4 py-4"><div className="flex items-center space-x-2"><Input id="new_material_name" value={newMaterialName} onChange={(e) => setNewMaterialName(e.target.value)} placeholder="Nueva materia o producto de reventa" disabled={isSubmitting} /><Button type="button" onClick={handleAddNewRawMaterial} disabled={isSubmitting}><ListPlus className="mr-2 h-4 w-4"/> Añadir</Button></div><Separator className="my-4" /><Label>Artículos Comprables Existentes:</Label>{currentRawMaterialOptions.length > 0 ? (<ScrollArea className="h-48 rounded-md border p-2">{currentRawMaterialOptions.map(option => (<div key={option} className="flex items-center justify-between py-1.5 hover:bg-muted/50 px-2 rounded-md"><span>{option}</span><Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10" onClick={() => openDeleteMaterialConfirm(option)} disabled={isSubmitting}><XCircle className="h-4 w-4" /></Button></div>))}</ScrollArea>) : (<p className="text-sm text-muted-foreground">No hay materias primas.</p>)}</div><DialogFooter><DialogClose asChild><Button variant="outline" onClick={() => {if(!isSubmitting) setIsManageMaterialsDialogOpen(false);}} disabled={isSubmitting}>Cerrar</Button></DialogClose></DialogFooter></DialogContent></Dialog>
-      <Dialog open={isDeleteMaterialConfirmOpen} onOpenChange={(isOpen) => { if(!isSubmitting) setIsDeleteMaterialConfirmOpen(isOpen); }}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Confirmar Eliminación</DialogTitle><DialogDescription>¿Eliminar materia prima "{materialToDelete}"?</DialogDescription></DialogHeader><DialogFooter><DialogClose asChild><Button variant="outline" onClick={() => {if(!isSubmitting) setIsDeleteMaterialConfirmOpen(false);}} disabled={isSubmitting}>Cancelar</Button></DialogClose><Button variant="destructive" onClick={handleConfirmDeleteMaterial} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}{isSubmitting ? 'Eliminando...' : 'Eliminar'}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={isDeleteConfirmDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsDeleteConfirmDialogOpen(isOpen) }}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Confirmar Eliminación</DialogTitle><DialogDescription>¿Eliminar OC? Ajustará stock/cuentas si estaba pagada.</DialogDescription></DialogHeader><DialogFooter className="sm:justify-end"><DialogClose asChild><Button variant="outline" onClick={() => { if (!isSubmitting) { setIsDeleteConfirmDialogOpen(false); setPoToDeleteId(null) } }} disabled={isSubmitting}>Cancelar</Button></DialogClose><Button variant="destructive" onClick={handleConfirmDelete} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}{isSubmitting ? 'Eliminando...' : 'Eliminar OC'}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={isManageMaterialsDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsManageMaterialsDialogOpen(isOpen); }}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>Gestionar Materias Primas y Productos de Reventa</DialogTitle><DialogDescription>Añade/elimina opciones de la lista global. Los productos de reventa también deben añadirse aquí para poder incluirlos en Órdenes de Compra.</DialogDescription></DialogHeader><div className="grid gap-4 py-4"><div className="flex items-center space-x-2"><Input id="new_material_name" value={newMaterialName} onChange={(e) => setNewMaterialName(e.target.value)} placeholder="Nueva materia o producto de reventa" disabled={isSubmitting} /><Button type="button" onClick={handleAddNewRawMaterial} disabled={isSubmitting}><ListPlus className="mr-2 h-4 w-4" /> Añadir</Button></div><Separator className="my-4" /><Label>Artículos Comprables Existentes:</Label>{currentRawMaterialOptions.length > 0 ? (<ScrollArea className="h-48 rounded-md border p-2">{currentRawMaterialOptions.map(option => (<div key={option} className="flex items-center justify-between py-1.5 hover:bg-muted/50 px-2 rounded-md"><span>{option}</span><Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10" onClick={() => openDeleteMaterialConfirm(option)} disabled={isSubmitting}><XCircle className="h-4 w-4" /></Button></div>))}</ScrollArea>) : (<p className="text-sm text-muted-foreground">No hay materias primas.</p>)}</div><DialogFooter><DialogClose asChild><Button variant="outline" onClick={() => { if (!isSubmitting) setIsManageMaterialsDialogOpen(false); }} disabled={isSubmitting}>Cerrar</Button></DialogClose></DialogFooter></DialogContent></Dialog>
+      <Dialog open={isDeleteMaterialConfirmOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsDeleteMaterialConfirmOpen(isOpen); }}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Confirmar Eliminación</DialogTitle><DialogDescription>¿Eliminar materia prima "{materialToDelete}"?</DialogDescription></DialogHeader><DialogFooter><DialogClose asChild><Button variant="outline" onClick={() => { if (!isSubmitting) setIsDeleteMaterialConfirmOpen(false); }} disabled={isSubmitting}>Cancelar</Button></DialogClose><Button variant="destructive" onClick={handleConfirmDeleteMaterial} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}{isSubmitting ? 'Eliminando...' : 'Eliminar'}</Button></DialogFooter></DialogContent></Dialog>
 
       <ManageConversionsDialog
         isOpen={isManageConversionsDialogOpen}
