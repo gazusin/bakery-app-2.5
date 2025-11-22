@@ -5,6 +5,7 @@
 import { parseISO, isValid, differenceInDays, addDays, format as formatDateFns, compareDesc, isWithinInterval, startOfDay, endOfDay, startOfWeek, endOfWeek, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { type SimulatedRecipe, type SimulatedRecipeItem } from '@/app/price-comparison/page'; // Importar tipos
+import type { ProductLoss } from '@/lib/types/db-types';
 
 // --- Event Dispatcher ---
 export function dispatchDataUpdateEvent(key: string) {
@@ -50,6 +51,7 @@ export const KEYS = {
   WEEKLY_LOSS_REPORTS: 'bakery_weekly_loss_reports_data',
   WEEKLY_PROFIT_REPORTS: 'bakery_weekly_profit_reports_data', // Nuevo
   COMPARISON_RECIPES: 'bakery_comparison_recipes', // Nueva clave para recetas de comparación
+  PRODUCT_LOSSES: 'bakery_product_losses_data', // Global - Pérdidas de productos categorizadas
 } as const;
 
 export const COMPANY_ACCOUNTS_STORAGE_KEY_BASE = KEYS.COMPANY_ACCOUNTS;
@@ -130,7 +132,7 @@ function getStorageKey(baseKey: string): string {
 }
 
 
-function getStorageKeyForBranch(baseKey: string, branchId: string): string {
+export function getStorageKeyForBranch(baseKey: string, branchId: string): string {
   if (GLOBAL_KEYS.includes(baseKey as any)) return baseKey; // Global keys don't change
   if (!availableBranches.some(b => b.id === branchId)) {
     console.warn(`getStorageKeyForBranch: BranchId '${branchId}' no es válido. Usando 'default_branch_ERROR'.`);
@@ -193,7 +195,7 @@ export function loadFromLocalStorage<T>(baseKey: string, isObject = false): T {
   return (isObject ? getDefaultObjectStructure(key, baseKey) : []) as T;
 }
 
-function saveToLocalStorage<T>(baseKey: string, data: T): void {
+export function saveToLocalStorage<T>(baseKey: string, data: T): void {
   if (typeof window === 'undefined') return;
   const key = getStorageKey(baseKey);
   if (key.includes("_default_branch_PLEASE_SELECT_BRANCH") && !GLOBAL_KEYS.includes(baseKey as any)) {
@@ -387,7 +389,50 @@ export function convertMaterialToBaseUnit(
 
 
 // --- Types, Models, Data ---
-export type AccountType = 'vesElectronic' | 'usdCash' | 'vesCash';
+import {
+  AccountType,
+  UserPermissions,
+  Product,
+  ProductionLogEntry,
+  ProductionGoal,
+  Recipe,
+  RecipeIngredientItem,
+  Supplier,
+  SupplierPriceListItem,
+  PriceHistoryEntry,
+  PurchaseOrder,
+  PurchaseOrderItem,
+  PurchaseOrderStatus,
+  PaymentSplit,
+  PaymentMethodType,
+  Sale,
+  SaleItem,
+  SaleBranchDetail,
+  SaleStatus,
+  Customer,
+  Payment,
+  PaymentStatus,
+  PaymentSource,
+  PaymentBranchApplication,
+  AccountTransaction,
+  TransactionType,
+  AccountBalance,
+  CompanyAccountsData,
+  Employee,
+  Expense,
+  UserProfile,
+  RawMaterialInventoryItem,
+  InventoryTransfer,
+  ExpenseFixedCategory,
+  DirectIngredient,
+  PendingFundTransfer,
+  WeeklyLossReport,
+  LossEntry,
+  WeeklyProfitReport,
+  ProfitEntry,
+  AuditLog,
+} from './types/db-types';
+
 export const accountTypes: AccountType[] = ['vesElectronic', 'usdCash', 'vesCash'];
 export const accountTypeNames: Record<AccountType, string> = {
   vesElectronic: "VES Electrónico",
@@ -395,7 +440,6 @@ export const accountTypeNames: Record<AccountType, string> = {
   vesCash: "VES Efectivo"
 };
 
-export interface UserPermissions { [moduleId: string]: boolean; }
 export const allModules = [
   "Panel Principal", "Stock de producción", "Producción", "Recetas", "Proveedores",
   "Órdenes de Compra", "Inventario Materia Prima", "Comparación de Precios", "Reorden Inteligente",
@@ -406,318 +450,13 @@ function normalizeModuleKey(moduleKey: string) {
   return moduleKey.toLowerCase().replace(/ /g, '-').replace(/[óòôõö]/g, 'o').replace(/[áàâãä]/g, 'a')
     .replace(/[éèêë]/g, 'e').replace(/[íìîï]/g, 'i').replace(/[úùûü]/g, 'u').replace(/ñ/g, 'n');
 }
-export interface Product { id: string; name: string; category: string; stock: number; unitPrice: number; lastUpdated: string; image: string; aiHint?: string; sourceBranchId?: string; sourceBranchName?: string; }
-export interface ProductionLogEntry {
-  id: string;
-  date: string;
-  product: string;
-  batchSizeMultiplier: number;
-  expectedQuantity: number;
-  actualQuantity: number;
-  unitPrice: number;
-  staff: string;
-  batchNumber?: string;
-  timestamp?: string;
-  bagUsed?: string;
-  labelUsed?: string;
-}
-export interface ProductionGoal { id: string; product: string; target: number; achieved: number; status: string; period: 'weekly' | 'monthly'; startDate: string; }
-export interface RecipeIngredientItem {
-  id: string;
-  name: string;
-  quantity: number;
-  unit: string;
-  notes?: string;
-}
 
-export interface Recipe {
-  id: string;
-  name: string;
-  ingredients: RecipeIngredientItem[];
-  instructions?: string;
-  costPerUnit: number; // For non-intermediate products, this is the SALE price. For 'No despachable', it's the production cost.
-  expectedYield?: number;
-  lastUpdated: string;
-  isIntermediate?: boolean;
-  isResoldProduct?: boolean; // New flag for resold products
-  outputUnit?: 'kg' | 'l';
-  category?: string;
-  aiHint?: string;
-  batchSizeMultiplier?: number;
-}
 
-export interface PriceHistoryEntry {
-  price: number;
-  date: string;
-}
-export interface SupplierPriceListItem {
-  id: string;
-  rawMaterialName: string;
-  unit: string;
-  priceHistory: PriceHistoryEntry[];
-}
-export interface Supplier {
-  id: string;
-  name: string;
-  contactPerson?: string;
-  phone?: string;
-  email?: string;
-  address?: string;
-  priceList?: SupplierPriceListItem[];
-  priceListUSDCash?: SupplierPriceListItem[]; // Nueva lista de precios para USD en efectivo
-}
-export interface PurchaseOrderItem { id: string; rawMaterialName: string; quantity: number; unit: string; unitPrice: number; subtotal: number; }
-export type PurchaseOrderStatus = 'Pagado' | 'Pendiente' | 'Cancelado' | 'Recibido';
 export const purchaseOrderStatusList: PurchaseOrderStatus[] = ['Pagado', 'Pendiente', 'Cancelado', 'Recibido'];
-
-export interface PurchaseOrder {
-  id: string;
-  supplierId: string;
-  supplierName: string;
-  orderDate: string;
-  expectedDelivery: string;
-  items: PurchaseOrderItem[];
-  totalCost: number;
-  status: PurchaseOrderStatus;
-  paymentSplits?: PaymentSplit[];
-  timestamp?: string;
-  exchangeRateOnOrderDate?: number;
-  notes?: string;
-}
-export type PaymentMethodType = 'Efectivo USD' | 'Efectivo VES' | 'Pago Móvil (VES)' | 'Transferencia (VES)' | 'Otro' | 'Crédito a Favor' | 'Nota de Crédito';
 export const paymentMethodList: PaymentMethodType[] = (['Efectivo USD', 'Efectivo VES', 'Pago Móvil (VES)', 'Transferencia (VES)', 'Otro', 'Crédito a Favor'] as PaymentMethodType[]).sort((a, b) => a.localeCompare(b));
 export const salePaymentMethods: Sale['paymentMethod'][] = ['Pagado', 'Crédito'];
 
-export interface PaymentSplit {
-  id: string;
-  amount: number;
-  currency: 'USD' | 'VES';
-  paymentMethod: PaymentMethodType;
-  exchangeRateAtPayment?: number;
-  paidToBranchId: string;
-  paidToAccountId: AccountType;
-  referenceNumber?: string;
-  items?: PurchaseOrderItem[];
-}
 
-export interface SaleItem {
-  productId: string;
-  productName: string;
-  quantity: number;
-  unitPrice: number;
-  subtotal: number;
-  sourceBranchId: string;
-  sourceBranchName: string;
-}
-
-export interface SaleBranchDetail {
-  branchId: string;
-  branchName: string;
-  items: SaleItem[];
-  totalAmount: number;
-  amountPaidUSD: number;
-}
-
-export interface Sale {
-  id: string;
-  date: string;
-  itemsPerBranch: SaleBranchDetail[];
-  changes?: SaleItem[];
-  samples?: SaleItem[];
-  customerId?: string;
-  customerName?: string;
-  totalAmount: number;
-  paymentMethod: 'Pagado' | 'Crédito';
-  dueDate?: string;
-  paymentSplits?: PaymentSplit[]; // Usado si paymentMethod es 'Pagado'
-  amountPaidUSD: number;
-  status?: SaleStatus;
-  timestamp?: string;
-  notes?: string;
-  creditNoteTargetInvoiceId?: string; // Para identificar a qué factura se aplica la nota de crédito
-}
-
-export type SaleStatus = 'Completada' | 'Pendiente de Pago' | 'Vencida' | 'Pagada Parcialmente';
-
-export interface Customer {
-  id: string;
-  name: string;
-  contact: string;
-  phone?: string; // Added phone property
-  email?: string;
-  address?: string;
-  workZone?: string;
-  lastOrder?: string;
-}
-
-export type PaymentStatus = 'pendiente de verificación' | 'verificado' | 'rechazado';
-export type PaymentSource = 'invoice' | 'balance_adjustment';
-
-
-export interface PaymentBranchApplication {
-  branchId: string;
-  amount: number;
-}
-
-export interface Payment {
-  id: string;
-  customerId: string;
-  customerName: string;
-  paymentDate: string;
-  amountPaidInput: number;
-  currencyPaidInput: 'USD' | 'VES';
-  exchangeRateAtPayment?: number;
-  amountAppliedToDebtUSD: number;
-  amountAppliedPerBranch_USD?: PaymentBranchApplication[];
-  paymentMethod: PaymentMethodType;
-  paidToAccountId?: AccountType;
-  paidToBranchId?: string;
-  status: PaymentStatus;
-  referenceNumber?: string;
-  notes?: string;
-  verifiedBy?: string;
-  verificationDate?: string;
-  appliedToInvoiceId?: string;
-  paymentSource: PaymentSource;
-  creationTimestamp?: string;
-  parentPaymentId?: string; // Nuevo para agrupar pagos
-}
-
-export type TransactionType = 'ingreso' | 'egreso';
-export interface AccountTransaction {
-  id: string;
-  date: string;
-  description: string;
-  type: TransactionType;
-  amount: number;
-  currency: 'USD' | 'VES';
-  accountId: AccountType;
-  exchangeRateOnTransactionDate?: number;
-  amountInOtherCurrency?: number;
-  category?: string;
-  sourceModule: 'Ventas (Pago Cliente)' | 'Gastos Operativos' | 'Nómina' | 'Compra de Materia Prima' | 'Ajuste Manual Ingreso' | 'Ajuste Manual Egreso' | 'Transferencia de Fondos';
-  sourceId?: string;
-  relatedSaleId?: string;
-  relatedPaymentId?: string;
-  balanceAfterTransaction?: number;
-  timestamp?: string;
-}
-export interface AccountBalance {
-  balance: number;
-  currency: 'USD' | 'VES';
-  lastTransactionDate?: string;
-}
-export interface CompanyAccountsData { // Representa las cuentas de UNA sede
-  vesElectronic: AccountBalance;
-  usdCash: AccountBalance;
-  vesCash: AccountBalance;
-}
-export interface Employee { id: string; name: string; role: string; contact: string; hireDate: string; status: string; salary?: number; }
-export interface Expense {
-  id: string;
-  date: string;
-  mainCategoryType?: 'Fijo' | 'Variable' | string;
-  category: string;
-  description: string;
-  amount: number; // Siempre en USD para el gasto, la transacción de cuenta se hace en la moneda de la cuenta
-  paidTo: string;
-  sourceModule?: 'Compra de Materia Prima' | 'Gastos Operativos';
-  sourceId?: string;
-  paymentAccountId?: AccountType; // La cuenta desde donde se pagó
-  timestamp?: string;
-}
-export interface UserProfile { fullName: string; email: string; phone: string; moduleAccess: UserPermissions; }
-export interface RawMaterialInventoryItem { name: string; quantity: number; unit: string; }
-export interface InventoryTransfer {
-  id: string;
-  date: string;
-  fromBranchId: string;
-  fromBranchName: string;
-  toBranchId: string;
-  toBranchName: string;
-  materialName: string;
-  quantity: number;
-  unit: string;
-  notes?: string;
-  timestamp?: string;
-}
-export interface ExpenseFixedCategory { name: string; monthlyAmount?: number; }
-
-export interface DirectIngredient {
-  name: string;
-  quantity: number;
-  unit: string;
-  isIntermediate: boolean;
-  originalRecipeUnit?: string;
-}
-
-export interface PendingFundTransfer {
-  id: string;
-  saleId: string;
-  fromBranchId: string;
-  fromBranchName: string;
-  toBranchId: string;
-  toBranchName: string;
-  amountUSD: number;
-  amountVES?: number; // Nuevo
-  originalPaymentAccountId?: AccountType;
-  originalPaymentCurrency?: 'USD' | 'VES';
-  exchangeRateAtPayment?: number; // Añadido
-  fromAccountId?: AccountType;
-  toAccountId?: AccountType;
-  creationTimestamp: string;
-  status: 'pendiente' | 'completada';
-  completionTimestamp?: string;
-  notes?: string;
-  parentPaymentId?: string;
-  isFromCreditNote?: boolean;
-}
-
-export interface LossEntry {
-  type: 'Merma' | 'Cambio' | 'Muestra';
-  date: string;
-  productName: string;
-  quantity: number;
-  costPerUnitUSD: number;
-  totalCostUSD: number;
-  customerId?: string;
-  customerName?: string;
-  saleId?: string;
-  sourceBranchId: string;
-  sourceBranchName: string;
-}
-
-export interface WeeklyLossReport {
-  id: string; // e.g., WLR-YYYY-MM-DD
-  weekStartDate: string;
-  weekEndDate: string;
-  generatedOn: string;
-  totalLossUSD: number;
-  entries: LossEntry[];
-}
-
-export interface ProfitEntry {
-  date: string;
-  productName: string;
-  quantitySold: number;
-  salePricePerUnitUSD: number;
-  costPerUnitUSD: number;
-  profitPerUnitUSD: number;
-  sourceBranchId: string;
-  sourceBranchName: string;
-  saleId: string;
-}
-
-export interface WeeklyProfitReport {
-  id: string;
-  weekStartDate: string;
-  weekEndDate: string;
-  generatedOn: string;
-  totalRevenueUSD: number;
-  totalCostsUSD: number;
-  totalProfitUSD: number;
-  entries: ProfitEntry[];
-}
 
 
 // --- Global Data Variables ---
@@ -1873,7 +1612,13 @@ export function saveSalesData(data: Sale[]): void {
     })) : [],
   }));
   salesData = validatedSales;
-  saveToLocalStorage<Sale[]>(KEYS.SALES, salesData);
+
+  // Sync to IndexedDB asynchronously
+  syncSalesToDB(salesData);
+
+  // Legacy: Keep saving to LocalStorage for safety during migration, or remove?
+  // Removing it to enforce IndexedDB usage, but we need to ensure data is loaded from DB.
+  // saveToLocalStorage<Sale[]>(KEYS.SALES, salesData);
 }
 export function saveCustomersData(data: Customer[]): void {
   const uniqueCustomersMap = new Map<string, Customer>();
@@ -1884,11 +1629,21 @@ export function saveCustomersData(data: Customer[]): void {
     }
   }
   customersData = Array.from(uniqueCustomersMap.values());
-  saveToLocalStorage<Customer[]>(KEYS.CUSTOMERS, customersData);
+
+  syncCustomersToDB(customersData);
+  // saveToLocalStorage<Customer[]>(KEYS.CUSTOMERS, customersData);
 }
 export function savePaymentsData(data: Payment[]): void {
-  paymentsData = data;
-  saveToLocalStorage<Payment[]>(KEYS.PAYMENTS, data);
+  const validatedPayments = data.map(payment => ({
+    ...payment,
+    amountPaidInput: typeof payment.amountPaidInput === 'number' ? payment.amountPaidInput : 0,
+    amountAppliedToDebtUSD: typeof payment.amountAppliedToDebtUSD === 'number' ? payment.amountAppliedToDebtUSD : 0,
+    exchangeRateAtPayment: typeof payment.exchangeRateAtPayment === 'number' ? payment.exchangeRateAtPayment : undefined,
+  }));
+  paymentsData = validatedPayments;
+
+  syncPaymentsToDB(paymentsData);
+  // saveToLocalStorage<Payment[]>(KEYS.PAYMENTS, paymentsData);
 }
 export function saveInventoryTransfersData(data: InventoryTransfer[]): void { inventoryTransfersData = data; saveToLocalStorage<InventoryTransfer[]>(KEYS.INVENTORY_TRANSFERS, data); }
 export function savePendingFundTransfersData(data: PendingFundTransfer[]): void { pendingFundTransfersData = data; saveToLocalStorage<PendingFundTransfer[]>(KEYS.PENDING_FUND_TRANSFERS, data); }
@@ -2159,3 +1914,470 @@ export function calculateInvoiceBalance(invoiceId: string, allPayments: Payment[
 
 
 
+
+// --- IndexedDB Helpers (Async) ---
+import { db } from './db';
+
+
+export async function getAllSalesFromDB(): Promise<Sale[]> {
+  if (typeof window === 'undefined') return [];
+  return await db.sales.toArray();
+}
+
+export async function addSaleToDB(sale: Sale): Promise<string> {
+  if (typeof window === 'undefined') return '';
+  return await db.sales.add(sale);
+}
+
+export async function updateSaleInDB(id: string, updates: Partial<Sale>): Promise<number> {
+  if (typeof window === 'undefined') return 0;
+  return await db.sales.update(id, updates);
+}
+
+export async function deleteSaleFromDB(id: string): Promise<void> {
+  if (typeof window === 'undefined') return;
+  await db.sales.delete(id);
+}
+
+export async function initializeSalesFromDB(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    const sales = await getAllSalesFromDB();
+    salesData = sales;
+    // Dispatch update to notify components that data is ready
+    dispatchDataUpdateEvent(KEYS.SALES);
+  } catch (error) {
+    console.error("Failed to initialize sales from DB:", error);
+  }
+}
+
+export async function initializeDataFromDB(): Promise<void> {
+  await initializeSalesFromDB();
+  await initializeCustomersFromDB();
+  await initializePaymentsFromDB();
+  await initializeProductsFromDB();
+  await initializeExpensesFromDB();
+  // AuditLogs will be loaded on demand via user management module
+}
+
+// Helper to sync memory state to DB (Full overwrite - safe but inefficient, use for migration phase)
+async function syncSalesToDB(data: Sale[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    await db.transaction('rw', db.sales, async () => {
+      await db.sales.clear();
+      await db.sales.bulkAdd(data);
+    });
+  } catch (error) {
+    console.error("Failed to sync sales to DB:", error);
+  }
+}
+
+// --- Customers Helpers ---
+export async function getAllCustomersFromDB(): Promise<Customer[]> {
+  if (typeof window === 'undefined') return [];
+  return await db.customers.toArray();
+}
+
+export async function initializeCustomersFromDB(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    const customers = await getAllCustomersFromDB();
+    customersData = customers;
+    dispatchDataUpdateEvent(KEYS.CUSTOMERS);
+  } catch (error) {
+    console.error("Failed to initialize customers from DB:", error);
+  }
+}
+
+async function syncCustomersToDB(data: Customer[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    await db.transaction('rw', db.customers, async () => {
+      await db.customers.clear();
+      await db.customers.bulkAdd(data);
+    });
+  } catch (error) {
+    console.error("Failed to sync customers to DB:", error);
+  }
+}
+
+// --- Payments Helpers ---
+export async function getAllPaymentsFromDB(): Promise<Payment[]> {
+  if (typeof window === 'undefined') return [];
+  return await db.payments.toArray();
+}
+
+export async function initializePaymentsFromDB(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    const payments = await getAllPaymentsFromDB();
+    paymentsData = payments;
+    dispatchDataUpdateEvent(KEYS.PAYMENTS);
+  } catch (error) {
+    console.error("Failed to initialize payments from DB:", error);
+  }
+}
+
+async function syncPaymentsToDB(data: Payment[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    await db.transaction('rw', db.payments, async () => {
+      await db.payments.clear();
+      await db.payments.bulkAdd(data);
+    });
+  } catch (error) {
+    console.error("Failed to sync payments to DB:", error);
+  }
+}
+
+
+// --- Products Helpers ---
+export async function getAllProductsFromDB(): Promise<Product[]> {
+  if (typeof window === 'undefined') return [];
+  return await db.products.toArray();
+}
+
+export async function initializeProductsFromDB(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    const products = await getAllProductsFromDB();
+    productsData = products;
+    dispatchDataUpdateEvent(KEYS.PRODUCTS);
+  } catch (error) {
+    console.error("Failed to initialize products from DB:", error);
+  }
+}
+
+async function syncProductsToDB(data: Product[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    await db.transaction('rw', db.products, async () => {
+      await db.products.clear();
+      await db.products.bulkAdd(data);
+    });
+  } catch (error) {
+    console.error("Failed to sync products to DB:", error);
+  }
+}
+
+// --- Expenses Helpers ---
+export async function getAllExpensesFromDB(): Promise<Expense[]> {
+  if (typeof window === 'undefined') return [];
+  return await db.expenses.toArray();
+}
+
+export async function initializeExpensesFromDB(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    const expenses = await getAllExpensesFromDB();
+    expensesData = expenses;
+    dispatchDataUpdateEvent(KEYS.EXPENSES);
+  } catch (error) {
+    console.error("Failed to initialize expenses from DB:", error);
+  }
+}
+
+async function syncExpensesToDB(data: Expense[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    await db.transaction('rw', db.expenses, async () => {
+      await db.expenses.clear();
+      await db.expenses.bulkAdd(data);
+    });
+  } catch (error) {
+    console.error("Failed to sync expenses to DB:", error);
+  }
+}
+
+// --- AuditLogs Helpers ---
+export async function getAllAuditLogsFromDB(): Promise<AuditLog[]> {
+  if (typeof window === 'undefined') return [];
+  return await db.auditLogs.toArray();
+}
+
+async function syncAuditLogsToDB(data: AuditLog[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    await db.transaction('rw', db.auditLogs, async () => {
+      await db.auditLogs.clear();
+      await db.auditLogs.bulkAdd(data);
+    });
+  } catch (error) {
+    console.error("Failed to sync audit logs to DB:", error);
+  }
+}
+
+// --- Payment Validation Helpers ---
+export interface DuplicateReferenceInfo {
+  exists: boolean;
+  existingPayment?: Payment;
+}
+
+/**
+ * Verifica si una referencia bancaria ya existe en los pagos registrados
+ * @param referenceNumber Número de referencia a validar
+ * @param excludePaymentId ID del pago a excluir (útil al editar)
+ * @returns Información sobre el duplicado si existe
+ */
+export function checkDuplicateReference(
+  referenceNumber: string,
+  excludePaymentId?: string
+): DuplicateReferenceInfo {
+  // Si la referencia está vacía, no validar
+  if (!referenceNumber || referenceNumber.trim() === '') {
+    return { exists: false };
+  }
+
+  // Cargar todos los pagos
+  const allPayments = loadFromLocalStorage<Payment[]>(KEYS.PAYMENTS) || [];
+
+  // Normalizar la referencia para comparación
+  const normalizedRef = referenceNumber.trim();
+
+  // Buscar pagos con la misma referencia
+  const existingPayment = allPayments.find(p =>
+    p.referenceNumber &&
+    p.referenceNumber.trim() === normalizedRef &&
+    p.id !== excludePaymentId  // Excluir el pago actual si se está editando
+  );
+
+  return {
+    exists: !!existingPayment,
+    existingPayment
+  };
+}
+
+/**
+ * Valida formato de referencia para métodos bancarios
+ * @param referenceNumber Número de referencia
+ * @returns true si el formato es válido (6 dígitos)
+ */
+export function validateReferenceFormat(referenceNumber: string): boolean {
+  return /^\d{6}$/.test(referenceNumber);
+}
+
+/**
+ * Obtiene todos los pagos de un día específico
+ * @param date Fecha en formato 'YYYY-MM-DD'
+ * @returns Array de pagos del día
+ */
+export function getPaymentsByDate(date: string): Payment[] {
+  const allPayments = loadFromLocalStorage<Payment[]>(KEYS.PAYMENTS) || [];
+
+  return allPayments.filter(p => {
+    if (!p.paymentDate) return false;
+
+    // Comparar solo la fecha (ignorar hora)
+    const paymentDate = p.paymentDate.split('T')[0];
+    const targetDate = date.split('T')[0];
+
+    return paymentDate === targetDate;
+  });
+}
+
+/**
+ * Obtiene pagos con referencia de un período
+ * Útil para generar reportes de cierre de cobranza
+ * @param date Fecha en formato 'YYYY-MM-DD'
+ * @returns Array de pagos con referencia
+ */
+export function getPaymentsWithReferenceByDate(date: string): Payment[] {
+  const payments = getPaymentsByDate(date);
+
+  // Filtrar solo pagos con referencia (bancarios)
+  return payments.filter(p => p.referenceNumber && p.referenceNumber.trim() !== '');
+}
+
+// --- Customer Credit Status Helpers ---
+export interface CustomerCreditStatus {
+  isBlocked: boolean;
+  overdueAmount: number;
+  daysPastDue: number;
+  oldestOverdueDate?: string;
+  canOverride: boolean; // Based on user role
+}
+
+/**
+ * Obtiene el estado de crédito de un cliente
+ * @param customerId ID del cliente
+ * @param userRole Rol del usuario actual (para determinar permisos de override)
+ * @returns Estado completo del crédito del cliente
+ */
+export function getCustomerCreditStatus(
+  customerId: string,
+  userRole?: string
+): CustomerCreditStatus {
+  const allSales = loadFromLocalStorage<Sale[]>(KEYS.SALES) || [];
+  const allPayments = loadFromLocalStorage<Payment[]>(KEYS.PAYMENTS) || [];
+
+  // Filtrar ventas a crédito del cliente
+  const creditSales = allSales.filter(s =>
+    s.customerId === customerId &&
+    s.paymentMethod === 'Crédito' &&
+    s.status !== 'Completada' &&
+    s.dueDate
+  );
+
+  if (creditSales.length === 0) {
+    return {
+      isBlocked: false,
+      overdueAmount: 0,
+      daysPastDue: 0,
+      canOverride: false
+    };
+  }
+
+  const today = new Date();
+  let totalOverdueAmount = 0;
+  let maxDaysPastDue = 0;
+  let oldestOverdueDate: string | undefined;
+
+  creditSales.forEach(sale => {
+    if (!sale.dueDate) return;
+
+    const dueDate = parseISO(sale.dueDate);
+    const daysPast = differenceInDays(today, dueDate);
+
+    if (daysPast > 0) {
+      // Venta vencida
+      const unpaidAmount = sale.totalAmount - (sale.amountPaidUSD || 0);
+
+      if (unpaidAmount > 0) {
+        totalOverdueAmount += unpaidAmount;
+
+        if (daysPast > maxDaysPastDue) {
+          maxDaysPastDue = daysPast;
+          oldestOverdueDate = sale.dueDate;
+        }
+      }
+    }
+  });
+
+  // Bloquear si tiene deuda vencida > 7 días
+  const isBlocked = maxDaysPastDue > 7 && totalOverdueAmount > 0;
+
+  // Solo Admin y Manager pueden autorizar excepciones
+  const canOverride = userRole === 'admin' || userRole === 'manager';
+
+  return {
+    isBlocked,
+    overdueAmount: totalOverdueAmount,
+    daysPastDue: maxDaysPastDue,
+    oldestOverdueDate,
+    canOverride
+  };
+}
+
+// --- P&L Calculation Helpers ---
+
+/**
+ * Calcula el costo de ventas (COGS) basado en recetas
+ * @param sales Ventas del período
+ * @param recipes Recetas disponibles
+ * @returns COGS total en USD
+ */
+export function calculateCOGS(sales: Sale[], recipes: Recipe[]): number {
+  let totalCOGS = 0;
+
+  if (!sales || !Array.isArray(sales)) return 0;
+
+  sales.forEach(sale => {
+    if (!sale.itemsPerBranch) return;
+
+    sale.itemsPerBranch.forEach(branchDetail => {
+      if (!branchDetail.items) return;
+
+      branchDetail.items.forEach(item => {
+        // Buscar receta del producto
+        const recipe = recipes.find(r =>
+          r.name.toLowerCase() === item.productName.toLowerCase()
+        );
+
+        if (recipe && recipe.costPerUnit) {
+          // Usar costo de receta
+          totalCOGS += recipe.costPerUnit * item.quantity;
+        } else {
+          // Estimar: 60% del precio de venta
+          totalCOGS += item.unitPrice * item.quantity * 0.6;
+        }
+      });
+    });
+  });
+
+  return totalCOGS;
+}
+
+/**
+ * Calcula el P&L de un período
+ * @param startDate Fecha inicial 'YYYY-MM-DD'
+ * @param endDate Fecha final 'YYYY-MM-DD'
+ * @param branchId ID de sede (opcional, null = todas) - NO USADO en Sale ya que no tiene branchId
+ * @returns Objeto con datos de P&L
+ */
+export function calculateProfitLoss(
+  startDate: string,
+  endDate: string,
+  branchId?: string | null
+) {
+  // Cargar datos
+  const allSales = loadFromLocalStorage<Sale[]>(KEYS.SALES) || [];
+  const allExpenses = loadFromLocalStorage<any[]>(KEYS.EXPENSES) || [];
+  const allLosses = loadFromLocalStorage<ProductLoss[]>(KEYS.PRODUCT_LOSSES) || [];
+
+  // Cargar recetas para calcular COGS
+  const allRecipes: Recipe[] = [];
+  availableBranches.forEach(branch => {
+    const branchRecipes = loadFromLocalStorageForBranch<Recipe[]>(KEYS.RECIPES, branch.id) || [];
+    allRecipes.push(...branchRecipes);
+  });
+
+  const start = parseISO(startDate);
+  const end = parseISO(endDate);
+
+  // Filtrar datos del período (Note: Sale no tiene branchId directo)
+  const periodSales = allSales.filter(s => {
+    const saleDate = parseISO(s.date);
+    return saleDate >= start && saleDate <= end;
+  });
+
+  const periodExpenses = allExpenses.filter(e => {
+    const expDate = parseISO(e.date);
+    const inPeriod = expDate >= start && expDate <= end;
+    const inBranch = !branchId || e.branchId === branchId;
+    return inPeriod && inBranch;
+  });
+
+  const periodLosses = allLosses.filter(l => {
+    const lossDate = parseISO(l.date);
+    const inPeriod = lossDate >= start && lossDate <= end;
+    const inBranch = !branchId || l.branchId === branchId;
+    return inPeriod && inBranch;
+  });
+
+  // Calcular métricas
+  const revenue = periodSales.reduce((sum, s) => sum + s.totalAmount, 0);
+  const cogs = calculateCOGS(periodSales, allRecipes);
+  const grossProfit = revenue - cogs;
+  const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+
+  const operatingExpenses = periodExpenses.reduce((sum, e) => sum + (e.amountUSD || 0), 0);
+  const lossesTotal = periodLosses.reduce((sum, l) => sum + l.totalCost, 0);
+
+  const netProfit = grossProfit - operatingExpenses - lossesTotal;
+  const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+
+  return {
+    revenue,
+    cogs,
+    grossProfit,
+    grossMargin,
+    operatingExpenses,
+    lossesTotal,
+    netProfit,
+    netMargin,
+    salesCount: periodSales.length,
+    expensesCount: periodExpenses.length,
+    lossesCount: periodLosses.length
+  };
+}

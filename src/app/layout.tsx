@@ -1,6 +1,7 @@
 
 "use client";
 
+import { migrateDataToIndexedDB } from '@/lib/db-migration';
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Geist, Geist_Mono } from 'next/font/google';
@@ -44,6 +45,7 @@ import {
   ListFilter,
   ArrowRightLeft,
   Shuffle,
+  TrendingUp,
   Globe,
   Store,
   PanelLeft,
@@ -51,7 +53,8 @@ import {
   Settings,
   Lightbulb,
   Shield,
-  Clock
+  Clock,
+  PackageX
 } from 'lucide-react';
 import Link from 'next/link';
 import { getActiveBranchId, availableBranches, userProfileData } from '@/lib/data-storage';
@@ -99,8 +102,11 @@ const allNavItems = [
   { href: "/inventory", label: "Stock de producción", icon: Package, scope: 'global' },
   { href: "/inventory-transfers", label: "Transferencias MP", icon: ArrowRightLeft, scope: 'global' },
   { href: "/payment-verification", label: "Verificación de Pagos", icon: CheckCircle2, scope: 'global' },
+  { href: "/payment-report", label: "Cierre de Cobranza", icon: DollarSign, scope: 'global' },
   { href: "/pending-fund-transfers", label: "Transferencias Fondos", icon: Shuffle, scope: 'global' },
   { href: "/price-comparison", label: "Simulador de costos de recetas", icon: ListFilter, scope: 'global' },
+  { href: "/product-losses", label: "Registro de Pérdidas", icon: PackageX, scope: 'branch' },
+  { href: "/profit-loss", label: "Estado de Resultados (P&L)", icon: TrendingUp, scope: 'global' },
   { href: "/reports", label: "Reportes", icon: FileText, scope: 'global' },
   { href: "/sales", label: "Ventas", icon: ShoppingCart, scope: 'global' },
   { href: "/suppliers", label: "Proveedores", icon: Building, scope: 'global' },
@@ -110,6 +116,7 @@ const allNavItems = [
   { href: "/goals", label: "Metas de Producción", icon: Target, scope: 'branch' },
   { href: "/orders", label: "Órdenes de Compra", icon: Receipt, scope: 'branch' },
   { href: "/production", label: "Producción", icon: Layers, scope: 'branch' },
+  { href: "/production-planner", label: "Planificador Inteligente", icon: TrendingUp, scope: 'global' },
   { href: "/raw-material-inventory", label: "Inventario Materia Prima", icon: Archive, scope: 'branch' },
   { href: "/recipes", label: "Recetas", icon: Utensils, scope: 'branch' },
 ] as const;
@@ -139,11 +146,7 @@ const footerNavItems = (() => {
     .filter(item => item.scope === 'global')
     .sort((a, b) => a.label.localeCompare(b.label));
 
-  const branchFooterNavItems = allFooterNavItems
-    .filter(item => item.scope === 'branch')
-    .sort((a, b) => a.label.localeCompare(b.label));
-
-  return [...globalFooterNavItems, ...branchFooterNavItems];
+  return [...globalFooterNavItems];
 })();
 
 
@@ -152,6 +155,16 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Run DB Migration
+  useEffect(() => {
+    const initDB = async () => {
+      await migrateDataToIndexedDB();
+      const { initializeDataFromDB } = await import('@/lib/data-storage');
+      await initializeDataFromDB();
+    };
+    initDB();
+  }, []);
+
   const router = useRouter();
   const pathname = usePathname();
   const [isClient, setIsClient] = useState(false);
@@ -179,14 +192,34 @@ export default function RootLayout({
   useEffect(() => {
     if (isClient) {
       checkAuthAndBranch();
+
+      // Listen for user updates
+      const handleUserUpdate = () => checkAuthAndBranch();
+      window.addEventListener('user-updated', handleUserUpdate);
+
+      // Listen for storage events (cross-tab)
+      window.addEventListener('storage', handleUserUpdate);
+
+      return () => {
+        window.removeEventListener('user-updated', handleUserUpdate);
+        window.removeEventListener('storage', handleUserUpdate);
+      };
     }
   }, [isClient, checkAuthAndBranch]);
 
+  // Re-check auth when pathname changes to catch login transitions
+  useEffect(() => {
+    checkAuthAndBranch();
+  }, [pathname, checkAuthAndBranch]);
+
   useEffect(() => {
     if (!loading) {
-      if (!isAuthenticated && pathname !== '/login') {
+      // Double check auth state directly from storage to avoid stale state race conditions
+      const currentAuth = localStorage.getItem('isUserLoggedIn') === 'true';
+
+      if (!currentAuth && pathname !== '/login') {
         router.replace('/login');
-      } else if (isAuthenticated && !activeBranchId && pathname !== '/login' && pathname !== '/select-branch' && !navItems.find(item => item.href === pathname && item.scope === 'global') && !footerNavItems.find(item => item.href === pathname && item.scope === 'global')) {
+      } else if (currentAuth && !activeBranchId && pathname !== '/login' && pathname !== '/select-branch' && !navItems.find(item => item.href === pathname && item.scope === 'global') && !footerNavItems.find(item => item.href === pathname && item.scope === 'global')) {
         router.replace('/select-branch');
       }
     }

@@ -24,6 +24,7 @@ import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { createBackup, downloadBackup, AutoBackupService } from '@/lib/backup-service';
+import { generateDemoData } from '@/lib/seed-data';
 
 const dataModules = [
   { id: KEYS.CUSTOMERS, name: 'Clientes (Global)', keys: [KEYS.CUSTOMERS], icon: Users },
@@ -67,6 +68,7 @@ export default function DataManagementPage() {
   );
   const [autoBackupInterval, setAutoBackupInterval] = useState(1440);
   const [lastBackupInfo, setLastBackupInfo] = useState<{ timestamp: string; size: number } | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -432,6 +434,60 @@ export default function DataManagementPage() {
     }
   }, [toast]);
 
+  const handleGenerateDemoData = async () => {
+    setIsGenerating(true);
+
+    const tryGenerate = async (months: number): Promise<boolean> => {
+      try {
+        await generateDemoData(months);
+        toast({
+          title: "Datos Generados",
+          description: `Se han generado datos de prueba para los últimos ${months} meses. Recarga la página para ver los cambios.`,
+        });
+        setTimeout(() => window.location.reload(), 2000);
+        return true;
+      } catch (error: any) {
+        const isQuotaError = error && (
+          error.name === 'QuotaExceededError' ||
+          error.code === 22 ||
+          error.message?.toLowerCase().includes('quota') ||
+          error.message?.toLowerCase().includes('storage')
+        );
+
+        if (isQuotaError) {
+          if (months > 1) {
+            const nextMonths = Math.floor(months / 2);
+            console.warn(`Quota exceeded for ${months} months. Retrying with ${nextMonths}...`);
+            toast({
+              title: "Espacio Insuficiente",
+              description: `No se pudieron generar ${months} meses por límite de almacenamiento. Intentando con ${nextMonths} meses...`,
+              variant: "default", // Info warning
+            });
+            // Pequeña pausa para dar tiempo al UI update
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return await tryGenerate(nextMonths);
+          } else {
+            throw new Error("El almacenamiento local está lleno. No se pudo generar ni 1 mes de datos.");
+          }
+        }
+        throw error;
+      }
+    };
+
+    try {
+      await tryGenerate(12); // Intentar 12 meses inicialmente
+    } catch (error: any) {
+      console.error("Error generando datos:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Hubo un problema al generar los datos de prueba.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   return (
     <PageTransition className="space-y-6">
       <PageHeader
@@ -444,6 +500,7 @@ export default function DataManagementPage() {
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="backup">Respaldos y Restauración</TabsTrigger>
           <TabsTrigger value="transfer">Transferencia de Datos</TabsTrigger>
+          <TabsTrigger value="demo">Datos Demo</TabsTrigger>
           <TabsTrigger value="info">Información del Sistema</TabsTrigger>
         </TabsList>
 
@@ -654,6 +711,41 @@ export default function DataManagementPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+
+
+        {/* TAB: DEMO DATA */}
+        <TabsContent value="demo" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shuffle className="h-5 w-5" />
+                Generador de Datos de Prueba
+              </CardTitle>
+              <CardDescription>
+                Genera datos históricos simulados para probar el sistema (Ventas, Gastos, Auditoría).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+                <AlertTitle className="text-blue-800 dark:text-blue-400">Información</AlertTitle>
+                <AlertDescription className="text-blue-700 dark:text-blue-300">
+                  Esta herramienta generará automáticamente ventas diarias, gastos mensuales (alquiler, nómina) y logs de auditoría para los últimos 12 meses.
+                  <br /><strong>Nota:</strong> Los datos generados se añadirán a los existentes.
+                </AlertDescription>
+              </Alert>
+
+              <Button
+                onClick={handleGenerateDemoData}
+                disabled={isGenerating}
+                className="w-full"
+              >
+                {isGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Shuffle className="mr-2 h-4 w-4" />}
+                {isGenerating ? 'Generando datos...' : 'Generar Datos de Prueba (12 Meses)'}
+              </Button>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* TAB: INFO */}

@@ -23,8 +23,8 @@ export default function AuditLogsPage() {
     const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
 
     // Filters
-    const [filterModule, setFilterModule] = useState<string>('');
-    const [filterAction, setFilterAction] = useState<string>('');
+    const [filterModule, setFilterModule] = useState<string>('all');
+    const [filterAction, setFilterAction] = useState<string>('all');
     const [filterLimit, setFilterLimit] = useState<number>(50);
 
     const canViewLogs = isAdmin || isManager;
@@ -38,8 +38,8 @@ export default function AuditLogsPage() {
 
     const refreshLogs = () => {
         const filters: any = { limit: filterLimit };
-        if (filterModule) filters.module = filterModule;
-        if (filterAction) filters.action = filterAction as AuditAction;
+        if (filterModule && filterModule !== 'all') filters.module = filterModule;
+        if (filterAction && filterAction !== 'all') filters.action = filterAction as AuditAction;
 
         setLogs(getAuditLogs(filters));
     };
@@ -47,8 +47,8 @@ export default function AuditLogsPage() {
     const handleExportCSV = () => {
         try {
             const filters: any = {};
-            if (filterModule) filters.module = filterModule;
-            if (filterAction) filters.action = filterAction as AuditAction;
+            if (filterModule && filterModule !== 'all') filters.module = filterModule;
+            if (filterAction && filterAction !== 'all') filters.action = filterAction as AuditAction;
 
             const csvContent = exportAuditLogsToCSV(filters);
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -189,7 +189,7 @@ export default function AuditLogsPage() {
                                     <SelectValue placeholder="Todos los módulos" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="">Todos</SelectItem>
+                                    <SelectItem value="all">Todos</SelectItem>
                                     <SelectItem value="auth">Autenticación</SelectItem>
                                     <SelectItem value="users">Usuarios</SelectItem>
                                     <SelectItem value="ventas">Ventas</SelectItem>
@@ -207,7 +207,7 @@ export default function AuditLogsPage() {
                                     <SelectValue placeholder="Todas las acciones" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="">Todas</SelectItem>
+                                    <SelectItem value="all">Todas</SelectItem>
                                     <SelectItem value={AuditAction.CREATE}>Crear</SelectItem>
                                     <SelectItem value={AuditAction.UPDATE}>Editar</SelectItem>
                                     <SelectItem value={AuditAction.DELETE}>Eliminar</SelectItem>
@@ -239,8 +239,8 @@ export default function AuditLogsPage() {
                                 variant="outline"
                                 className="w-full"
                                 onClick={() => {
-                                    setFilterModule('');
-                                    setFilterAction('');
+                                    setFilterModule('all');
+                                    setFilterAction('all');
                                     setFilterLimit(50);
                                 }}
                             >
