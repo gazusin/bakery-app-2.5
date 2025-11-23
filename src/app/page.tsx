@@ -41,6 +41,7 @@ import { es } from 'date-fns/locale';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import Link from 'next/link';
 import { salesData, KEYS, loadFromLocalStorage, type Expense } from '@/lib/data-storage';
+import { DailySummary } from '@/components/dashboard/daily-summary';
 
 const mainBakeryId = 'panaderia_principal';
 const processedProductsId = 'productos_elaborados';
@@ -406,6 +407,9 @@ export default function DashboardPage() {
         description="Visión general del rendimiento de tu panadería en tiempo real."
         icon={Home}
       />
+
+      {/* Daily AI Summary */}
+      <DailySummary />
 
       {/* Exchange Rate */}
       <ExchangeRateManager />

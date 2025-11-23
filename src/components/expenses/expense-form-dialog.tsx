@@ -11,11 +11,14 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, PlusCircle, Edit, Calendar as CalendarIcon } from 'lucide-react';
+import { ExpenseCategoryAI } from '@/components/ai/expense-category-ai';
 import { format, parseISO, isValid, startOfWeek, endOfWeek, isWithinInterval, isSameDay } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { type Expense, type ExpenseFixedCategory, type AccountType, accountTypeNames as defaultAccountTypeNames, type Employee, loadFromLocalStorageForBranch, EXPENSES_STORAGE_KEY_BASE, KEYS, getActiveBranchId } from '@/lib/data-storage';
+import { loadFromLocalStorageForBranch, EXPENSES_STORAGE_KEY_BASE, KEYS, getActiveBranchId } from '@/lib/data-storage';
+import type { Expense, ExpenseFixedCategory, AccountType, Employee } from '@/lib/types/db-types';
+import { accountTypeNames as defaultAccountTypeNames } from '@/lib/data-storage';
 import { FormattedNumber } from '@/components/ui/formatted-number';
 
 interface ExpenseFormDialogProps {
@@ -53,7 +56,7 @@ export function ExpenseFormDialog({
   const [mainCategoryId, setMainCategoryId] = useState<string>(mainExpenseCategories[0]?.id || '');
   const [subCategoryId, setSubCategoryId] = useState<string>('');
   const [description, setDescription] = useState<string>('');
-  
+
   const [amountInput, setAmountInput] = useState<string>('');
   const [inputCurrency, setInputCurrency] = useState<'USD' | 'VES'>(exchangeRate > 0 ? 'VES' : 'USD');
 
@@ -61,7 +64,7 @@ export function ExpenseFormDialog({
   const [paymentAccountId, setPaymentAccountId] = useState<AccountType>(exchangeRate > 0 ? 'vesElectronic' : 'usdCash');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   const [employeeSalaryDisplay, setEmployeeSalaryDisplay] = useState<string | null>(null);
-  
+
   const [availableSubcategories, setAvailableSubcategories] = useState<string[]>([]);
   const [isDialogSubmitting, setIsDialogSubmitting] = useState(false);
 
@@ -77,8 +80,8 @@ export function ExpenseFormDialog({
   useEffect(() => {
     if (isOpen) {
       const activeBranchId = getActiveBranchId();
-      if(activeBranchId) {
-        setEmployees(loadFromLocalStorageForBranch<Employee[]>(KEYS.EMPLOYEES, activeBranchId).sort((a,b) => a.name.localeCompare(b.name)));
+      if (activeBranchId) {
+        setEmployees(loadFromLocalStorageForBranch<Employee[]>(KEYS.EMPLOYEES, activeBranchId).sort((a, b) => a.name.localeCompare(b.name)));
       }
     }
   }, [isOpen]);
@@ -95,14 +98,14 @@ export function ExpenseFormDialog({
       }
       setSubCategoryId(expenseToEdit.category || '');
       setDescription(expenseToEdit.description || '');
-      
+
       setInputCurrency('USD'); // Start with USD for editing
       setAmountInput(expenseToEdit.amount?.toString() || '');
       prevInputCurrencyRef.current = 'USD'; // Ensure ref is also updated
 
       setPaidTo(expenseToEdit.paidTo || '');
       setPaymentAccountId(expenseToEdit.paymentAccountId || (exchangeRate > 0 ? 'vesElectronic' : 'usdCash'));
-      
+
       const isNominaExpense = (mainCatId === 'fijo' || (fixedCategories.find(cat => cat.name === expenseToEdit.category) && mainExpenseCategories.find(mc => mc.name === 'Gasto Fijo')?.id === 'fijo')) && expenseToEdit.category === 'Nómina';
       const employeeMatch = employees.find(emp => emp.name === expenseToEdit.paidTo);
 
@@ -167,8 +170,8 @@ export function ExpenseFormDialog({
       }
     }
     prevInputCurrencyRef.current = inputCurrency;
-  }, [inputCurrency, exchangeRate, amountInput]); 
-  
+  }, [inputCurrency, exchangeRate, amountInput]);
+
   useEffect(() => {
     prevAmountInputRef.current = amountInput;
   }, [amountInput]);
@@ -184,7 +187,7 @@ export function ExpenseFormDialog({
       const selectedExpenseDate = expenseDate || new Date();
       const weekStartForSelectedDate = startOfWeek(selectedExpenseDate, { weekStartsOn: 1 });
       const weekEndForSelectedDate = endOfWeek(selectedExpenseDate, { weekStartsOn: 1 });
-      
+
       const allExpenses: Expense[] = loadFromLocalStorageForBranch<Expense[]>(KEYS.EXPENSES, getActiveBranchId() || '');
       const employeePaymentsInSelectedWeek = allExpenses.filter(exp =>
         exp.category === 'Nómina' && exp.paidTo === employee.name &&
@@ -200,7 +203,7 @@ export function ExpenseFormDialog({
             {employeePaymentsInSelectedWeek.map(exp => (
               <li key={exp.id}>{format(parseISO(exp.date), "dd/MM/yy", { locale: es })}: ${exp.amount.toFixed(2)} ({exp.description})</li>
             ))}
-            <li className="font-semibold border-t pt-1 mt-1">Total Pagado en Semana de {format(weekStartForSelectedDate, "dd/MM", {locale: es})}: ${totalPaidInSelectedWeekUSD.toFixed(2)}</li>
+            <li className="font-semibold border-t pt-1 mt-1">Total Pagado en Semana de {format(weekStartForSelectedDate, "dd/MM", { locale: es })}: ${totalPaidInSelectedWeekUSD.toFixed(2)}</li>
           </ul>);
       } else {
         setPayrollHistoryDisplay(<p className="text-muted-foreground">No se han registrado pagos a este empleado en la semana del {format(weekStartForSelectedDate, "dd/MM/yyyy", { locale: es })}.</p>);
@@ -219,13 +222,13 @@ export function ExpenseFormDialog({
         if (!isEditing) setAmountInput('0');
       }
     } else if (mainCategoryId === 'fijo' && subCategoryId === 'Nómina' && !selectedEmployeeId) {
-       if (!isEditing || (isEditing && expenseToEdit?.category !== 'Nómina')) { setAmountInput(''); setPaidTo(''); setDescription(''); }
-       setEmployeeSalaryDisplay(null); setPayrollHistoryDisplay(null); setRemainingToPayForWeekUSD(null);
+      if (!isEditing || (isEditing && expenseToEdit?.category !== 'Nómina')) { setAmountInput(''); setPaidTo(''); setDescription(''); }
+      setEmployeeSalaryDisplay(null); setPayrollHistoryDisplay(null); setRemainingToPayForWeekUSD(null);
     } else {
-        if (!isEditing || (isEditing && (expenseToEdit?.category !== subCategoryId || (subCategoryId !== 'Nómina' && expenseToEdit?.paidTo !== paidTo)))) {
-           if (expenseToEdit?.category === 'Nómina' && subCategoryId !== 'Nómina') { setAmountInput(''); setPaidTo(''); setDescription(''); }
-        }
-        setEmployeeSalaryDisplay(null); setPayrollHistoryDisplay(null); setRemainingToPayForWeekUSD(null);
+      if (!isEditing || (isEditing && (expenseToEdit?.category !== subCategoryId || (subCategoryId !== 'Nómina' && expenseToEdit?.paidTo !== paidTo)))) {
+        if (expenseToEdit?.category === 'Nómina' && subCategoryId !== 'Nómina') { setAmountInput(''); setPaidTo(''); setDescription(''); }
+      }
+      setEmployeeSalaryDisplay(null); setPayrollHistoryDisplay(null); setRemainingToPayForWeekUSD(null);
     }
   }, [selectedEmployeeId, employees, mainCategoryId, subCategoryId, isEditing, expenseToEdit, paidTo, expenseDate, inputCurrency, exchangeRate]);
 
@@ -244,17 +247,17 @@ export function ExpenseFormDialog({
         return;
       }
     }
-    
+
     if (mainCategoryId === 'fijo' && subCategoryId === 'Nómina' && selectedEmployeeId && remainingToPayForWeekUSD !== null && finalUsdAmount > remainingToPayForWeekUSD + 0.001) {
-        toast({
-            title: "Error de Monto",
-            description: `El monto a pagar ($${finalUsdAmount.toFixed(2)}) excede el saldo pendiente ($${remainingToPayForWeekUSD.toFixed(2)}) para este empleado en la semana seleccionada.`,
-            variant: "destructive",
-            duration: 7000,
-        });
-        return;
+      toast({
+        title: "Error de Monto",
+        description: `El monto a pagar ($${finalUsdAmount.toFixed(2)}) excede el saldo pendiente ($${remainingToPayForWeekUSD.toFixed(2)}) para este empleado en la semana seleccionada.`,
+        variant: "destructive",
+        duration: 7000,
+      });
+      return;
     }
-    
+
     setIsDialogSubmitting(true);
     let submissionTimestamp = new Date().toISOString();
     if (isEditing && expenseToEdit?.date && expenseDate && isValid(parseISO(expenseToEdit.date)) && isValid(expenseDate)) {
@@ -271,7 +274,7 @@ export function ExpenseFormDialog({
       amount: parseFloat(finalUsdAmount.toFixed(2)),
       paidTo,
       paymentAccountId,
-      timestamp: submissionTimestamp, 
+      timestamp: submissionTimestamp,
     };
     await onSubmit(expenseData, isEditing, isEditing ? expenseToEdit?.id : undefined);
     setIsDialogSubmitting(false);
@@ -351,7 +354,7 @@ export function ExpenseFormDialog({
                 )}
                 {employeeSalaryDisplay && payrollHistoryDisplay && (
                   <div className="mt-2 space-y-1 border-t pt-2">
-                    <Label className="text-xs font-semibold text-muted-foreground">Historial de Pagos (Semana del {expenseDate ? format(startOfWeek(expenseDate, {weekStartsOn: 1}), "dd/MM") : format(startOfWeek(new Date(), {weekStartsOn: 1}), "dd/MM", {locale: es})}):</Label>
+                    <Label className="text-xs font-semibold text-muted-foreground">Historial de Pagos (Semana del {expenseDate ? format(startOfWeek(expenseDate, { weekStartsOn: 1 }), "dd/MM") : format(startOfWeek(new Date(), { weekStartsOn: 1 }), "dd/MM", { locale: es })}):</Label>
                     <div className="text-xs p-2 bg-muted/50 rounded-md max-h-24 overflow-y-auto">
                       {payrollHistoryDisplay}
                     </div>
@@ -359,7 +362,7 @@ export function ExpenseFormDialog({
                 )}
                 {employeeSalaryDisplay && remainingToPayForWeekUSD !== null && (
                   <div className="mt-1 space-y-1">
-                    <Label className="text-xs font-semibold text-muted-foreground">Restante por Pagar (Semana del {expenseDate ? format(startOfWeek(expenseDate, {weekStartsOn: 1}), "dd/MM") : format(startOfWeek(new Date(), {weekStartsOn: 1}), "dd/MM", {locale: es})}):</Label>
+                    <Label className="text-xs font-semibold text-muted-foreground">Restante por Pagar (Semana del {expenseDate ? format(startOfWeek(expenseDate, { weekStartsOn: 1 }), "dd/MM") : format(startOfWeek(new Date(), { weekStartsOn: 1 }), "dd/MM", { locale: es })}):</Label>
                     <p className="text-sm font-medium"><FormattedNumber value={remainingToPayForWeekUSD} prefix="$" /></p>
                   </div>
                 )}
@@ -367,12 +370,26 @@ export function ExpenseFormDialog({
             )}
             <div className="space-y-1">
               <Label htmlFor="dialog_description">Descripción</Label>
-              <Input id="dialog_description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="ej., Compra de insumos" disabled={isDialogSubmitting}/>
+              <Input id="dialog_description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="ej., Compra de insumos" disabled={isDialogSubmitting} />
+              <ExpenseCategoryAI
+                description={description}
+                onSuggestionAccept={(category) => {
+                  const matchingFixed = fixedCategories.find(c => c.name === category);
+                  const matchingVariable = variableCategories.find(c => c === category);
+                  if (matchingFixed) {
+                    setMainCategoryId('fijo');
+                    setSubCategoryId(category);
+                  } else if (matchingVariable) {
+                    setMainCategoryId('variable');
+                    setSubCategoryId(category);
+                  }
+                }}
+              />
             </div>
             <div className="grid grid-cols-3 gap-2 items-end">
               <div className="col-span-2 space-y-1">
                 <Label htmlFor="dialog_amount_input">Monto ({inputCurrency})</Label>
-                <Input id="dialog_amount_input" type="number" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} placeholder={inputCurrency === 'USD' ? "ej., 75.50" : "ej., 2750.00"} disabled={isDialogSubmitting}/>
+                <Input id="dialog_amount_input" type="number" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} placeholder={inputCurrency === 'USD' ? "ej., 75.50" : "ej., 2750.00"} disabled={isDialogSubmitting} />
               </div>
               <div className="col-span-1 space-y-1">
                 <Label htmlFor="dialog_input_currency">Moneda</Label>
@@ -385,7 +402,7 @@ export function ExpenseFormDialog({
                 </Select>
               </div>
             </div>
-            {equivalentDisplayValue > 0 && 
+            {equivalentDisplayValue > 0 &&
               <p className="text-xs text-muted-foreground pt-1">
                 Equivalente: <FormattedNumber value={equivalentDisplayValue} prefix={equivalentPrefix} />
               </p>
@@ -403,14 +420,14 @@ export function ExpenseFormDialog({
                   {(Object.keys(accountTypeNames) as AccountType[])
                     .sort((a, b) => accountTypeNames[a].localeCompare(accountTypeNames[b]))
                     .map(accKey => (
-                      <SelectItem 
-                        key={accKey} 
-                        value={accKey} 
+                      <SelectItem
+                        key={accKey}
+                        value={accKey}
                         disabled={(accKey === 'vesElectronic' || accKey === 'vesCash') && exchangeRate <= 0}
                       >
                         {accountTypeNames[accKey]} {(accKey === 'vesElectronic' || accKey === 'vesCash') && exchangeRate <= 0 ? "(Tasa no disp.)" : ""}
                       </SelectItem>
-                  ))}
+                    ))}
                 </SelectContent>
               </Select>
               {(paymentAccountId === 'vesElectronic' || paymentAccountId === 'vesCash') && exchangeRate <= 0 && <p className="text-xs text-destructive pt-1">Se requiere tasa de cambio para cuentas VES.</p>}
@@ -428,4 +445,4 @@ export function ExpenseFormDialog({
     </Dialog>
   );
 }
-    
+

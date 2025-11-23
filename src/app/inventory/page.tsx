@@ -14,17 +14,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Package, Search, Loader2, Trash2, PlusCircle } from 'lucide-react';
 import Image from 'next/image';
 import { useToast } from "@/hooks/use-toast";
+import { StockAlertsAI } from '@/components/ai/stock-alerts-ai';
 import {
   loadAllProductsFromAllBranches,
   saveProductsDataForBranch,
-  type Product,
   loadExchangeRate,
   KEYS,
   loadProductsForBranch,
-  type Recipe,
   availableBranches,
   loadFromLocalStorageForBranch
 } from '@/lib/data-storage';
+import type { Product, Recipe } from '@/lib/types/db-types';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { FormattedNumber } from '@/components/ui/formatted-number';
@@ -217,6 +217,8 @@ export default function StockProduccionPage() {
           </Button>
         }
       />
+
+      <StockAlertsAI />
 
       <Card className="shadow-lg">
         <CardHeader>

@@ -73,7 +73,7 @@ export function analyzeHistoricalSales(
         const hasRecipe = recipes ? recipes.some(r => r.name === product.name) : false;
 
         suggestions.push({
-            productId: product.name, // Usamos el nombre para hacer match con las recetas
+            productId: product.id,
             productName: product.name,
             category: product.category,
             averageSales,

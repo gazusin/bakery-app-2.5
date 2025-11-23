@@ -2,10 +2,10 @@
 
 "use client";
 
-import { parseISO, isValid, differenceInDays, addDays, format as formatDateFns, compareDesc, isWithinInterval, startOfDay, endOfDay, startOfWeek, endOfWeek, isSameDay } from 'date-fns';
+import { parseISO, isValid, differenceInDays, addDays, format as formatDateFns, format, compareDesc, isWithinInterval, startOfDay, endOfDay, startOfWeek, endOfWeek, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { type SimulatedRecipe, type SimulatedRecipeItem } from '@/app/price-comparison/page'; // Importar tipos
-import type { ProductLoss } from '@/lib/types/db-types';
+import type { ProductLoss, ProductionOrderExecution } from '@/lib/types/db-types';
 
 // --- Event Dispatcher ---
 export function dispatchDataUpdateEvent(key: string) {
@@ -52,6 +52,7 @@ export const KEYS = {
   WEEKLY_PROFIT_REPORTS: 'bakery_weekly_profit_reports_data', // Nuevo
   COMPARISON_RECIPES: 'bakery_comparison_recipes', // Nueva clave para recetas de comparación
   PRODUCT_LOSSES: 'bakery_product_losses_data', // Global - Pérdidas de productos categorizadas
+  PENDING_PRODUCTIONS: 'bakery_pending_productions_data', // Por sede - Cola de producción
 } as const;
 
 export const COMPANY_ACCOUNTS_STORAGE_KEY_BASE = KEYS.COMPANY_ACCOUNTS;
@@ -431,6 +432,7 @@ import {
   WeeklyProfitReport,
   ProfitEntry,
   AuditLog,
+  PendingProductionItem,
 } from './types/db-types';
 
 export const accountTypes: AccountType[] = ['vesElectronic', 'usdCash', 'vesCash'];
@@ -472,6 +474,7 @@ export let monthlyGoalsData: ProductionGoal[] = [];
 export let employeesData: Employee[] = [];
 export let expensesData: Expense[] = [];
 export let customConversionRulesData: CustomConversionRule[] = [];
+export let pendingProductionsData: PendingProductionItem[] = [];
 
 
 // Datos GLOBALES
@@ -1650,6 +1653,20 @@ export function savePendingFundTransfersData(data: PendingFundTransfer[]): void 
 export function saveWeeklyLossReportsData(data: WeeklyLossReport[]): void { weeklyLossReportsData = data; saveToLocalStorage<WeeklyLossReport[]>(KEYS.WEEKLY_LOSS_REPORTS, data); }
 export function saveWeeklyProfitReportsData(data: WeeklyProfitReport[]): void { weeklyProfitReportsData = data; saveToLocalStorage<WeeklyProfitReport[]>(KEYS.WEEKLY_PROFIT_REPORTS, data); }
 export function saveComparisonRecipesData(data: SimulatedRecipe[]): void { saveToLocalStorage<SimulatedRecipe[]>(KEYS.COMPARISON_RECIPES, data); }
+export function savePendingProductionsData(branchId: string, data: PendingProductionItem[]): void { saveToLocalStorageForBranch<PendingProductionItem[]>(KEYS.PENDING_PRODUCTIONS, branchId, data); }
+export function loadPendingProductionsData(branchId: string): PendingProductionItem[] {
+  if (!branchId) return [];
+  const data = loadFromLocalStorageForBranch<PendingProductionItem[]>(KEYS.PENDING_PRODUCTIONS, branchId);
+  return Array.isArray(data) ? data.filter(item => item.status === 'pending') : [];
+}
+export function loadAllPendingProductionsFromAllBranches(): PendingProductionItem[] {
+  const allPending: PendingProductionItem[] = [];
+  availableBranches.forEach(branch => {
+    const branchPending = loadPendingProductionsData(branch.id);
+    allPending.push(...branchPending);
+  });
+  return allPending.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+}
 
 
 // --- Constants ---
@@ -2380,4 +2397,1346 @@ export function calculateProfitLoss(
     expensesCount: periodExpenses.length,
     lossesCount: periodLosses.length
   };
+}
+
+// ===== FUNCIONES DE IA LOCAL =====
+
+/**
+ * Predice la cantidad óptima de producción para un producto
+ * 100% offline - usa solo datos locales
+ */
+export function predictOptimalProduction(
+  productId: string,
+  productName: string,
+  targetDate: Date
+): {
+  recommended: number;
+  confidence: number;
+  reasoning: string;
+  historicalAvg: number;
+  seasonalAdjustment: number;
+  trendAdjustment: number;
+} {
+  const sales = loadFromLocalStorage<Sale[]>(KEYS.SALES) || [];
+  const today = new Date();
+  const eightWeeksAgo = new Date(today);
+  eightWeeksAgo.setDate(today.getDate() - 56);
+
+  // Filtrar ventas del producto en últimas 8 semanas
+  const productSales: Array<{ date: Date; quantity: number }> = [];
+
+  sales.forEach(sale => {
+    const saleDate = parseISO(sale.date);
+    if (saleDate >= eightWeeksAgo && saleDate <= today) {
+      sale.itemsPerBranch?.forEach(branch => {
+        branch.items?.forEach(item => {
+          if (item.productId === productId || item.productName.toLowerCase() === productName.toLowerCase()) {
+            productSales.push({
+              date: saleDate,
+              quantity: item.quantity
+            });
+          }
+        });
+      });
+    }
+  });
+
+  if (productSales.length === 0) {
+    return {
+      recommended: 0,
+      confidence: 0,
+      reasoning: "Sin datos históricos suficientes",
+      historicalAvg: 0,
+      seasonalAdjustment: 0,
+      trendAdjustment: 0
+    };
+  }
+
+  // 1. Calcular promedio del mismo día de semana
+  const targetDayOfWeek = targetDate.getDay();
+  const sameDaySales = productSales.filter(s => s.date.getDay() === targetDayOfWeek);
+
+  const historicalAvg = sameDaySales.length > 0
+    ? sameDaySales.reduce((sum, s) => sum + s.quantity, 0) / sameDaySales.length
+    : productSales.reduce((sum, s) => sum + s.quantity, 0) / productSales.length;
+
+  // 2. Aplicar ajuste estacional (fin de semana vs entre semana)
+  let seasonalAdjustment = 0;
+  const isWeekend = targetDayOfWeek === 0 || targetDayOfWeek === 6;
+
+  if (isWeekend) {
+    const weekendAvg = productSales
+      .filter(s => s.date.getDay() === 0 || s.date.getDay() === 6)
+      .reduce((sum, s, _, arr) => sum + s.quantity / arr.length, 0);
+    const weekdayAvg = productSales
+      .filter(s => s.date.getDay() > 0 && s.date.getDay() < 6)
+      .reduce((sum, s, _, arr) => sum + s.quantity / arr.length, 0);
+
+    if (weekdayAvg > 0) {
+      const weekendMultiplier = weekendAvg / weekdayAvg;
+      if (weekendMultiplier > 1.2) {
+        seasonalAdjustment = historicalAvg * (weekendMultiplier - 1);
+      }
+    }
+  }
+
+  // 3. Aplicar ajuste de tendencia (últimas 4 semanas vs anteriores 4)
+  const fourWeeksAgo = new Date(today);
+  fourWeeksAgo.setDate(today.getDate() - 28);
+
+  const recentSales = productSales.filter(s => s.date >= fourWeeksAgo);
+  const olderSales = productSales.filter(s => s.date < fourWeeksAgo);
+
+  let trendAdjustment = 0;
+  if (recentSales.length > 0 && olderSales.length > 0) {
+    const recentAvg = recentSales.reduce((sum, s) => sum + s.quantity, 0) / recentSales.length;
+    const olderAvg = olderSales.reduce((sum, s) => sum + s.quantity, 0) / olderSales.length;
+
+    if (olderAvg > 0) {
+      const trendPercent = (recentAvg - olderAvg) / olderAvg;
+      if (Math.abs(trendPercent) > 0.10) { // >10% cambio
+        trendAdjustment = historicalAvg * trendPercent;
+      }
+    }
+  }
+
+  // 4. Calcular recomendación final
+  const recommended = Math.round(Math.max(0, historicalAvg + seasonalAdjustment + trendAdjustment));
+
+  // 5. Calcular confianza basada en consistencia
+  const stdDev = Math.sqrt(
+    sameDaySales.reduce((sum, s) => sum + Math.pow(s.quantity - historicalAvg, 2), 0) /
+    Math.max(sameDaySales.length, 1)
+  );
+  const coefficientOfVariation = historicalAvg > 0 ? stdDev / historicalAvg : 1;
+  const confidence = Math.round(Math.max(0, Math.min(100, (1 - coefficientOfVariation) * 100)));
+
+  // 6. Generar razonamiento
+  let reasoning = `Promedio histórico: ${Math.round(historicalAvg)} un.`;
+  if (seasonalAdjustment > 0) reasoning += ` | Ajuste fin de semana: +${Math.round(seasonalAdjustment)}`;
+  if (Math.abs(trendAdjustment) > 0) {
+    reasoning += ` | Tendencia ${trendAdjustment > 0 ? 'creciente' : 'decreciente'}: ${trendAdjustment > 0 ? '+' : ''}${Math.round(trendAdjustment)}`;
+  }
+
+  return {
+    recommended,
+    confidence,
+    reasoning,
+    historicalAvg: Math.round(historicalAvg),
+    seasonalAdjustment: Math.round(seasonalAdjustment),
+    trendAdjustment: Math.round(trendAdjustment)
+  };
+}
+
+/**
+ * Genera alertas de stock crítico con predicción de agotamiento
+ * 100% offline
+ */
+export interface StockAlert {
+  productId: string;
+  productName: string;
+  currentStock: number;
+  dailyConsumption: number;
+  daysUntilStockout: number;
+  urgency: 'critical' | 'high' | 'medium';
+  recommendation: string;
+  reasoning: string;
+}
+
+export function generateStockAlerts(
+  products: Product[],
+  branchId?: string
+): StockAlert[] {
+  const sales = loadFromLocalStorage<Sale[]>(KEYS.SALES) || [];
+  const alerts: StockAlert[] = [];
+  const today = new Date();
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setDate(today.getDate() - 7);
+
+  products.forEach(product => {
+    if (product.stock <= 0) return; // Sin stock, sin alerta
+
+    // Calcular consumo diario promedio últimos 7 días
+    let totalSold = 0;
+    let salesCount = 0;
+
+    sales.forEach(sale => {
+      const saleDate = parseISO(sale.date);
+      if (saleDate >= sevenDaysAgo && saleDate <= today) {
+        sale.itemsPerBranch?.forEach(branch => {
+          // Filtrar por branch si se especifica
+          if (!branchId || branch.branchId === branchId) {
+            branch.items?.forEach(item => {
+              if (item.productId === product.id) {
+                totalSold += item.quantity;
+                salesCount++;
+              }
+            });
+          }
+        });
+      }
+    });
+
+    if (totalSold === 0) return; // Sin ventas, sin alerta
+
+    const dailyConsumption = totalSold / 7;
+    const daysUntilStockout = dailyConsumption > 0 ? product.stock / dailyConsumption : 999;
+
+    // Solo alertar si se agota en menos de 7 días
+    if (daysUntilStockout >= 7) return;
+
+    // Determinar urgencia
+    let urgency: 'critical' | 'high' | 'medium';
+    let recommendation: string;
+
+    if (daysUntilStockout < 2) {
+      urgency = 'critical';
+      recommendation = `🚨 URGENTE: Ordenar HOY mínimo ${Math.ceil(dailyConsumption * 7)} unidades`;
+    } else if (daysUntilStockout < 4) {
+      urgency = 'high';
+      recommendation = `Ordenar mañana ${Math.ceil(dailyConsumption * 7)} unidades`;
+    } else {
+      urgency = 'medium';
+      recommendation = `Planificar orden de ${Math.ceil(dailyConsumption * 7)} unidades`;
+    }
+
+    const reasoning = `Consumo: ${dailyConsumption.toFixed(1)} un/día | Stock: ${product.stock} un`;
+
+    alerts.push({
+      productId: product.id,
+      productName: product.name,
+      currentStock: product.stock,
+      dailyConsumption,
+      daysUntilStockout,
+      urgency,
+      recommendation,
+      reasoning
+    });
+  });
+
+  // Ordenar por urgencia (menor días primero)
+  return alerts.sort((a, b) => a.daysUntilStockout - b.daysUntilStockout);
+}
+
+/**
+ * Genera resumen narrativo diario del negocio
+ * 100% offline
+ */
+export interface DailySummaryData {
+  summary: string;
+  keyPoints: string[];
+  topAction: string | null;
+  sentiment: 'positive' | 'neutral' | 'warning';
+  metrics: {
+    weeklyGrowth: number;
+    marginTrend: string;
+    criticalIssues: number;
+  };
+}
+
+export function generateDailySummary(stockAlerts: StockAlert[]): DailySummaryData {
+  const sales = loadFromLocalStorage<Sale[]>(KEYS.SALES) || [];
+  const today = new Date();
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setDate(today.getDate() - 7);
+  const fourteenDaysAgo = new Date(today);
+  fourteenDaysAgo.setDate(today.getDate() - 14);
+
+  // Calcular ingresos última semana vs semana anterior
+  let thisWeekRevenue = 0;
+  let lastWeekRevenue = 0;
+
+  sales.forEach(sale => {
+    const saleDate = parseISO(sale.date);
+    if (saleDate >= sevenDaysAgo && saleDate <= today) {
+      thisWeekRevenue += sale.totalAmount || 0;
+    } else if (saleDate >= fourteenDaysAgo && saleDate < sevenDaysAgo) {
+      lastWeekRevenue += sale.totalAmount || 0;
+    }
+  });
+
+  const weeklyGrowth = lastWeekRevenue > 0
+    ? ((thisWeekRevenue - lastWeekRevenue) / lastWeekRevenue) * 100
+    : 0;
+
+  // Determinar sentiment
+  let sentiment: 'positive' | 'neutral' | 'warning';
+  let summary: string;
+
+  const criticalAlerts = stockAlerts.filter(a => a.urgency === 'critical').length;
+  const highAlerts = stockAlerts.filter(a => a.urgency === 'high').length;
+
+  if (criticalAlerts > 0) {
+    sentiment = 'warning';
+    summary = `⚠️ ${criticalAlerts} alerta${criticalAlerts > 1 ? 's' : ''} crítica${criticalAlerts > 1 ? 's' : ''} de stock`;
+  } else if (weeklyGrowth > 10) {
+    sentiment = 'positive';
+    summary = `📈 Semana excepcional: +${Math.round(weeklyGrowth)}% vs semana pasada`;
+  } else if (weeklyGrowth < -10) {
+    sentiment = 'warning';
+    summary = `⚠️ Semana desafiante: ${Math.round(weeklyGrowth)}% vs semana pasada`;
+  } else {
+    sentiment = 'neutral';
+    summary = `📊 Semana estable: ${weeklyGrowth >= 0 ? '+' : ''}${Math.round(weeklyGrowth)}% vs semana anterior`;
+  }
+
+  // Generar key points
+  const keyPoints: string[] = [];
+
+  // Punto 1: Crecimiento
+  if (Math.abs(weeklyGrowth) > 5) {
+    keyPoints.push(
+      weeklyGrowth > 0
+        ? `🔥 Ventas en crecimiento: +${Math.round(weeklyGrowth)}%`
+        : `📉 Ventas en descenso: ${Math.round(weeklyGrowth)}%`
+    );
+  }
+
+  // Punto 2: Alertas críticas
+  if (criticalAlerts > 0) {
+    keyPoints.push(`🚨 ${criticalAlerts} producto${criticalAlerts > 1 ? 's' : ''} con stock crítico (se agota${criticalAlerts > 1 ? 'n' : ''} en <2 días)`);
+  } else if (highAlerts > 0) {
+    keyPoints.push(`⚠️ ${highAlerts} producto${highAlerts > 1 ? 's' : ''} requiere${highAlerts > 1 ? 'n' : ''} reabastecimiento pronto`);
+  }
+
+  // Punto 3: Ingresos totales
+  if (thisWeekRevenue > 0) {
+    keyPoints.push(`💰 Ingresos esta semana: $${thisWeekRevenue.toFixed(2)}`);
+  }
+
+  // Determinar acción prioritaria
+  let topAction: string | null = null;
+
+  if (criticalAlerts > 0) {
+    const mostUrgent = stockAlerts.find(a => a.urgency === 'critical');
+    if (mostUrgent) {
+      topAction = `${mostUrgent.recommendation} para ${mostUrgent.productName}`;
+    }
+  } else if (weeklyGrowth < -15) {
+    topAction = "Revisar estrategia de ventas - tendencia negativa detectada";
+  } else if (highAlerts > 0) {
+    topAction = `Planificar reabastecimiento de ${highAlerts} producto${highAlerts > 1 ? 's' : ''}`;
+  }
+
+  return {
+    summary,
+    keyPoints,
+    topAction,
+    sentiment,
+    metrics: {
+      weeklyGrowth: Math.round(weeklyGrowth * 10) / 10,
+      marginTrend: weeklyGrowth > 0 ? '↗️ Subiendo' : weeklyGrowth < 0 ? '↘️ Bajando' : '→ Estable',
+      criticalIssues: criticalAlerts + (weeklyGrowth < -20 ? 1 : 0)
+    }
+  };
+}
+
+// ===== FASE 2: IA AVANZADA =====
+
+/**
+ * Sugiere categoría para un gasto basado en descripción
+ * 100% offline - usa análisis de texto simple
+ */
+export interface ExpenseCategorySuggestion {
+  category: string;
+  confidence: number;
+  alternatives: Array<{ category: string; score: number }>;
+}
+
+export function suggestExpenseCategory(
+  description: string,
+  historicalExpenses: any[]
+): ExpenseCategorySuggestion {
+  if (!description || description.trim().length < 2) {
+    return {
+      category: 'Otros',
+      confidence: 0,
+      alternatives: []
+    };
+  }
+
+  const desc = description.toLowerCase().trim();
+
+  // Categorías disponibles con palabras clave
+  const categories: Record<string, string[]> = {
+    'Servicios Públicos': ['luz', 'agua', 'electricidad', 'electric', 'hidro', 'gas', 'telefon', 'internet', 'servicio'],
+    'Nómina': ['salario', 'sueldo', 'pago', 'nomina', 'empleado', 'trabajador', 'prestacion'],
+    'Mantenimiento': ['reparacion', 'mantenimiento', 'arreglo', 'mechanic', 'plomer', 'pintor', 'limpieza'],
+    'Marketing': ['publicidad', 'marketing', 'promo', 'volante', 'cartel', 'anuncio', 'redes'],
+    'Transporte': ['gasolina', 'combustible', 'transporte', 'taxi', 'delivery', 'flete', 'envio'],
+    'Alquiler': ['alquiler', 'renta', 'arriendo', 'local'],
+    'Suministros': ['material', 'suministro', 'papeleria', 'bolsa', 'empaque', 'envase'],
+    'Impuestos': ['impuesto', 'tax', 'patente', 'permiso', 'licencia'],
+    'Materia Prima': ['ingredient', 'harina', 'azucar', 'leche', 'huevo', 'compra'],
+    'Operativo': ['operativo', 'operacion', 'general', 'gasto', 'misc'],
+    'Otros': []
+  };
+
+  // Scoring por categoría
+  const scores: Record<string, number> = {};
+
+  Object.keys(categories).forEach(category => {
+    scores[category] = 0;
+
+    // Buscar palabras clave en descripción
+    categories[category].forEach(keyword => {
+      if (desc.includes(keyword)) {
+        scores[category] += 10;
+      }
+    });
+  });
+
+  // Analizar históricos si existen
+  if (historicalExpenses.length > 0) {
+    historicalExpenses.forEach(expense => {
+      if (!expense.description || !expense.category) return;
+
+      const expDesc = expense.description.toLowerCase();
+      const similarity = calculateStringSimilarity(desc, expDesc);
+
+      if (similarity > 0.3) {
+        scores[expense.category] = (scores[expense.category] || 0) + (similarity * 20);
+      }
+    });
+  }
+
+  // Encontrar mejor categoría
+  let bestCategory = 'Otros';
+  let bestScore = 0;
+
+  Object.entries(scores).forEach(([category, score]) => {
+    if (score > bestScore) {
+      bestScore = score;
+      bestCategory = category;
+    }
+  });
+
+  // Calcular confidence (0-100%)
+  const totalScore = Object.values(scores).reduce((sum, score) => sum + score, 0);
+  const confidence = totalScore > 0 ? Math.min(100, Math.round((bestScore / totalScore) * 100)) : 0;
+
+  // Alternativas (top 2 después del mejor)
+  const alternatives = Object.entries(scores)
+    .filter(([cat]) => cat !== bestCategory && scores[cat] > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([category, score]) => ({
+      category,
+      score: Math.round((score / totalScore) * 100)
+    }));
+
+  return {
+    category: bestCategory,
+    confidence,
+    alternatives
+  };
+}
+
+// Helper: Similitud de strings simple (Jaccard)
+function calculateStringSimilarity(str1: string, str2: string): number {
+  const words1 = new Set(str1.split(/\s+/));
+  const words2 = new Set(str2.split(/\s+/));
+
+  const intersection = new Set([...words1].filter(w => words2.has(w)));
+  const union = new Set([...words1, ...words2]);
+
+  return union.size > 0 ? intersection.size / union.size : 0;
+}
+
+/**
+ * Analiza historial de precios de materiales
+ * 100% offline
+ */
+export interface PriceAnalysis {
+  materialName: string;
+  currentPrice: number;
+  trend: 'rising' | 'falling' | 'stable';
+  trendPercent: number;
+  cheapestSupplier: { name: string; price: number } | null;
+  recommendation: string;
+  priceHistory: Array<{ date: string; price: number; supplier: string }>;
+}
+
+export function analyzePriceHistory(
+  materialName: string,
+  currentSupplierId?: string
+): PriceAnalysis {
+  if (!materialName) {
+    return {
+      materialName: '',
+      currentPrice: 0,
+      trend: 'stable',
+      trendPercent: 0,
+      cheapestSupplier: null,
+      recommendation: 'Selecciona un material para ver el análisis.',
+      priceHistory: []
+    };
+  }
+
+  const orders = loadFromLocalStorage<any[]>(KEYS.PURCHASE_ORDERS) || [];
+  const today = new Date();
+  const threeMonthsAgo = new Date(today);
+  threeMonthsAgo.setMonth(today.getMonth() - 3);
+
+  // Recolectar historial de precios
+  const priceHistory: Array<{ date: string; price: number; supplier: string; supplierId: string }> = [];
+
+  orders.forEach(order => {
+    if (!order.date) return;
+
+    let orderDate: Date;
+    try {
+      orderDate = parseISO(order.date);
+    } catch (e) {
+      return;
+    }
+
+    if (orderDate < threeMonthsAgo) return;
+
+    order.items?.forEach((item: any) => {
+      if (!item.description) return;
+
+      if (item.description.toLowerCase() === materialName.toLowerCase()) {
+        priceHistory.push({
+          date: order.date,
+          price: item.unitPrice,
+          supplier: order.supplierName || 'Desconocido',
+          supplierId: order.supplierId || ''
+        });
+      }
+    });
+  });
+
+  if (priceHistory.length === 0) {
+    return {
+      materialName,
+      currentPrice: 0,
+      trend: 'stable',
+      trendPercent: 0,
+      cheapestSupplier: null,
+      recommendation: 'Sin datos históricos suficientes para análisis.',
+      priceHistory: []
+    };
+  }
+
+  // Ordenar por fecha
+  priceHistory.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  // Precio actual (más reciente)
+  const currentPrice = priceHistory[priceHistory.length - 1].price;
+
+  // Calcular tendencia (comparar primeros vs últimos precios)
+  const recentPrices = priceHistory.slice(-5).map(p => p.price);
+  const oldPrices = priceHistory.slice(0, Math.min(5, priceHistory.length)).map(p => p.price);
+
+  const avgRecent = recentPrices.reduce((sum, p) => sum + p, 0) / recentPrices.length;
+  const avgOld = oldPrices.reduce((sum, p) => sum + p, 0) / oldPrices.length;
+
+  const trendPercent = avgOld > 0 ? Math.round(((avgRecent - avgOld) / avgOld) * 100) : 0;
+
+  let trend: 'rising' | 'falling' | 'stable';
+  if (trendPercent > 5) trend = 'rising';
+  else if (trendPercent < -5) trend = 'falling';
+  else trend = 'stable';
+
+  // Encontrar proveedor más barato (últimos 30 días)
+  const thirtyDaysAgo = new Date(today);
+  thirtyDaysAgo.setDate(today.getDate() - 30);
+
+  const recentOrders = priceHistory.filter(p => new Date(p.date) >= thirtyDaysAgo);
+
+  let cheapestSupplier: { name: string; price: number } | null = null;
+  const supplierPrices: Record<string, number[]> = {};
+
+  recentOrders.forEach(p => {
+    if (!supplierPrices[p.supplier]) {
+      supplierPrices[p.supplier] = [];
+    }
+    supplierPrices[p.supplier].push(p.price);
+  });
+
+  let lowestPrice = Infinity;
+  Object.entries(supplierPrices).forEach(([supplier, prices]) => {
+    const avgPrice = prices.reduce((sum, p) => sum + p, 0) / prices.length;
+    if (avgPrice < lowestPrice) {
+      lowestPrice = avgPrice;
+      cheapestSupplier = { name: supplier, price: avgPrice };
+    }
+  });
+
+  // Generar recomendación
+  let recommendation = '';
+  if (trend === 'rising') {
+    recommendation = `⚠️ Precio en alza (+${trendPercent}%). Considera comprar pronto o buscar alternativas.`;
+  } else if (trend === 'falling') {
+    recommendation = `📉 Precio bajando (${trendPercent}%). Buen momento para comprar en cantidad.`;
+  } else {
+    recommendation = `→ Precio estable. Compra según necesidad.`;
+  }
+
+  if (cheapestSupplier && currentSupplierId) {
+    const bestSupplier = cheapestSupplier;
+    const currentSupplierPrices = priceHistory.filter(p => p.supplierId === currentSupplierId);
+    if (currentSupplierPrices.length > 0) {
+      const latestPrice = currentSupplierPrices[currentSupplierPrices.length - 1];
+      if (bestSupplier.price < latestPrice.price * 0.9) {
+        recommendation += ` 💡 ${bestSupplier.name} ofrece mejor precio (-${Math.round(((latestPrice.price - bestSupplier.price) / latestPrice.price) * 100)}%).`;
+      }
+    }
+  }
+
+  return {
+    materialName,
+    currentPrice,
+    trend,
+    trendPercent,
+    cheapestSupplier,
+    recommendation,
+    priceHistory: priceHistory.map(p => ({
+      date: p.date,
+      price: p.price,
+      supplier: p.supplier
+    }))
+  };
+}
+
+/**
+ * Sugiere ingredientes para una receta nueva
+ * 100% offline - basado en recetas similares
+ */
+export interface RecipeSuggestion {
+  suggestedIngredients: Array<{
+    name: string;
+    quantity: number;
+    unit: string;
+    confidence: number;
+  }>;
+  estimatedCost: number;
+  estimatedYield: number;
+  reasoning: string;
+  similarRecipes: string[];
+}
+
+export function suggestRecipeIngredients(
+  recipeName: string,
+  category: string,
+  existingRecipes: Recipe[]
+): RecipeSuggestion {
+  if (!recipeName || existingRecipes.length === 0) {
+    return {
+      suggestedIngredients: [],
+      estimatedCost: 0,
+      estimatedYield: 10,
+      reasoning: 'Sin datos suficientes para generar sugerencias.',
+      similarRecipes: []
+    };
+  }
+
+  const searchName = recipeName.toLowerCase();
+  const searchCategory = category?.toLowerCase() || '';
+
+  // Buscar recetas similares
+  const scoredRecipes = existingRecipes.map(recipe => {
+    let score = 0;
+
+    // Similitud de nombre (palabras en común)
+    const recipeLower = recipe.name.toLowerCase();
+    const nameWords = searchName.split(/\s+/);
+    nameWords.forEach(word => {
+      if (word.length > 2 && recipeLower.includes(word)) {
+        score += 10;
+      }
+    });
+
+    // Misma categoría
+    if (searchCategory && recipe.category?.toLowerCase() === searchCategory) {
+      score += 5;
+    }
+
+    return { recipe, score };
+  });
+
+  // Filtrar y ordenar por score
+  const similarRecipes = scoredRecipes
+    .filter(sr => sr.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+
+  if (similarRecipes.length === 0) {
+    // Fallback: usar todas las recetas de la categoría
+    const categoryRecipes = existingRecipes
+      .filter(r => r.category?.toLowerCase() === searchCategory)
+      .slice(0, 5);
+
+    if (categoryRecipes.length === 0) {
+      return {
+        suggestedIngredients: [],
+        estimatedCost: 0,
+        estimatedYield: 10,
+        reasoning: 'No hay suficientes recetas similares en tu historial para generar sugerencias precisas. A medida que agregues más recetas, esta función aprenderá y mejorará.',
+        similarRecipes: []
+      };
+    }
+
+    similarRecipes.push(...categoryRecipes.map(r => ({ recipe: r, score: 1 })));
+  }
+
+  // Agregar ingredientes de recetas similares
+  const ingredientCounts: Record<string, {
+    quantities: number[];
+    units: string[];
+    count: number;
+  }> = {};
+
+  similarRecipes.forEach(({ recipe }) => {
+    recipe.ingredients?.forEach(ing => {
+      const key = ing.name.toLowerCase();
+
+      if (!ingredientCounts[key]) {
+        ingredientCounts[key] = { quantities: [], units: [], count: 0 };
+      }
+
+      ingredientCounts[key].quantities.push(ing.quantity);
+      ingredientCounts[key].units.push(ing.unit);
+      ingredientCounts[key].count++;
+    });
+  });
+
+  // Calcular promedios y confianza
+  const suggestedIngredients = Object.entries(ingredientCounts)
+    .map(([name, data]) => {
+      const avgQuantity = data.quantities.reduce((sum, q) => sum + q, 0) / data.quantities.length;
+      const mostCommonUnit = data.units.sort((a, b) =>
+        data.units.filter(u => u === b).length - data.units.filter(u => u === a).length
+      )[0];
+
+      const confidence = Math.min(100, Math.round((data.count / similarRecipes.length) * 100));
+
+      return {
+        name,
+        quantity: Math.round(avgQuantity * 10) / 10,
+        unit: mostCommonUnit,
+        confidence
+      };
+    })
+    .sort((a, b) => b.confidence - a.confidence);
+
+  // Estimar costo (suma de ingredientes con precios conocidos)
+  let estimatedCost = 0;
+  const inventory = loadFromLocalStorage<any[]>(KEYS.RAW_MATERIAL_INVENTORY) || [];
+
+  suggestedIngredients.forEach(ing => {
+    const material = inventory.find(m =>
+      m.name.toLowerCase() === ing.name || ing.name.includes(m.name.toLowerCase())
+    );
+
+    if (material && material.unitCost) {
+      estimatedCost += ing.quantity * material.unitCost;
+    }
+  });
+
+  // Estimar yield (promedio de recetas similares)
+  const yields = similarRecipes
+    .map(sr => sr.recipe.expectedYield)
+    .filter((y): y is number => y !== undefined && y > 0);
+
+  const estimatedYield = yields.length > 0
+    ? Math.round(yields.reduce((sum, y) => sum + y, 0) / yields.length)
+    : 10;
+
+  const reasoning = `Basado en ${similarRecipes.length} receta${similarRecipes.length > 1 ? 's' : ''} similar${similarRecipes.length > 1 ? 'es' : ''}: ${similarRecipes.slice(0, 3).map(sr => sr.recipe.name).join(', ')}${similarRecipes.length > 3 ? '...' : ''}`;
+
+  return {
+    suggestedIngredients,
+    estimatedCost,
+    estimatedYield,
+    reasoning,
+    similarRecipes: similarRecipes.map(sr => sr.recipe.name)
+  };
+}
+
+/**
+ * Ejecuta una orden de producción, descontando materiales y sumando productos terminados
+ * 100% offline
+ */
+export function executeProductionOrder(
+  productId: string,
+  batchMultiplier: number,
+  targetDate: Date
+): ProductionOrderExecution {
+  const activeBranchId = getActiveBranchId();
+  if (!activeBranchId) {
+    return {
+      productId,
+      productName: '',
+      quantity: 0,
+      date: format(targetDate, 'yyyy-MM-dd'),
+      executedBy: userProfileData.name || 'Usuario',
+      success: false,
+      errors: ['No hay sede activa seleccionada']
+    };
+  }
+
+  // 1. Cargar receta
+  const recipes = loadFromLocalStorageForBranch<Recipe[]>(KEYS.RECIPES, activeBranchId);
+  const recipe = recipes.find(r => r.id === productId || r.name === productId);
+
+  if (!recipe) {
+    return {
+      productId,
+      productName: '',
+      quantity: 0,
+      date: format(targetDate, 'yyyy-MM-dd'),
+      executedBy: userProfileData.name || 'Usuario',
+      success: false,
+      errors: ['Receta no encontrada']
+    };
+  }
+
+  // 2. Calcular materiales necesarios
+  const requiredMaterials = recipe.ingredients.map(ing => ({
+    materialName: ing.name,
+    quantity: ing.quantity * batchMultiplier,
+    unit: ing.unit
+  }));
+
+  // 3. Verificar stock de materia prima
+  const inventory = loadFromLocalStorageForBranch<any[]>(KEYS.RAW_MATERIAL_INVENTORY, activeBranchId);
+  const errors: string[] = [];
+  const materialsDeducted: Array<{ materialName: string; quantity: number; unit: string; }> = [];
+
+  for (const required of requiredMaterials) {
+    const inventoryItem = inventory.find(inv =>
+      inv.name.toLowerCase() === required.materialName.toLowerCase()
+    );
+
+    if (!inventoryItem) {
+      errors.push(`Material "${required.materialName}" no encontrado en inventario`);
+      continue;
+    }
+
+    if (inventoryItem.quantity < required.quantity) {
+      errors.push(`Stock insuficiente de "${required.materialName}". Disponible: ${inventoryItem.quantity} ${required.unit}, Necesario: ${required.quantity} ${required.unit}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    return {
+      productId,
+      productName: recipe.name,
+      quantity: batchMultiplier,
+      date: format(targetDate, 'yyyy-MM-dd'),
+      executedBy: userProfileData.name || 'Usuario',
+      success: false,
+      errors
+    };
+  }
+
+  // 4. Descontar materiales del inventario
+  for (const required of requiredMaterials) {
+    const inventoryItem = inventory.find(inv =>
+      inv.name.toLowerCase() === required.materialName.toLowerCase()
+    );
+
+    if (inventoryItem) {
+      inventoryItem.quantity -= required.quantity;
+      inventoryItem.lastUpdated = new Date().toISOString().split('T')[0];
+      materialsDeducted.push({
+        materialName: inventoryItem.name,
+        quantity: required.quantity,
+        unit: required.unit
+      });
+    }
+  }
+
+  saveToLocalStorageForBranch(KEYS.RAW_MATERIAL_INVENTORY, activeBranchId, inventory);
+
+  // 5. Sumar producto terminado al stock
+  const products = loadProductsForBranch(activeBranchId);
+  const productIndex = products.findIndex(p => p.name === recipe.name);
+
+  const quantityToAdd = recipe.expectedYield ? recipe.expectedYield * batchMultiplier : batchMultiplier;
+
+  if (productIndex !== -1) {
+    products[productIndex].stock += quantityToAdd;
+    products[productIndex].lastUpdated = new Date().toISOString().split('T')[0];
+  } else {
+    // Si el producto no existe, crearlo
+    const branchName = availableBranches.find(b => b.id === activeBranchId)?.name || 'Sede Desconocida';
+    products.push({
+      id: recipe.id,
+      name: recipe.name,
+      category: recipe.category || 'Producto Final',
+      stock: quantityToAdd,
+      unitPrice: recipe.costPerUnit,
+      lastUpdated: new Date().toISOString().split('T')[0],
+      image: "https://placehold.co/40x40.png",
+      aiHint: recipe.aiHint,
+      sourceBranchId: activeBranchId,
+      sourceBranchName: branchName
+    });
+  }
+
+  saveProductsDataForBranch(activeBranchId, products);
+
+  // 6. Registrar en log de producción
+  const productionLog = loadFromLocalStorageForBranch<ProductionLogEntry[]>(KEYS.PRODUCTION_LOG, activeBranchId);
+  productionLog.push({
+    id: `PROD${Date.now()}`,
+    date: format(targetDate, 'yyyy-MM-dd'),
+    product: recipe.name,
+    batchSizeMultiplier: batchMultiplier,
+    expectedQuantity: recipe.expectedYield || batchMultiplier,
+    actualQuantity: quantityToAdd,
+    unitPrice: recipe.costPerUnit,
+    staff: userProfileData.name || 'Sistema',
+    timestamp: new Date().toISOString()
+  });
+
+  saveToLocalStorageForBranch(KEYS.PRODUCTION_LOG, activeBranchId, productionLog);
+
+  return {
+    productId,
+    productName: recipe.name,
+    quantity: batchMultiplier,
+    date: format(targetDate, 'yyyy-MM-dd'),
+    executedBy: userProfileData.name || 'Usuario',
+    success: true,
+    materialsDeducted,
+    productsAdded: quantityToAdd
+  };
+}
+
+/**
+ * Genera una lista inteligente de compras basada en faltantes detectados
+ * Sugiere proveedores óptimos y estima costos
+ * 100% offline
+ */
+export interface SmartPurchaseListItem {
+  materialName: string;
+  requiredAmount: number;
+  unit: string;
+  shortage: number;
+  suggestedSupplier: string;
+  suggestedSupplierId: string;
+  estimatedCost: number;
+  reasoning: string;
+}
+
+export function generateSmartPurchaseList(
+  materialRequirements: Array<{ materialName: string; requiredAmount: number; unit: string; currentStock: number; shortage: number; }>
+): SmartPurchaseListItem[] {
+  const suppliers = loadFromLocalStorage<any[]>(KEYS.SUPPLIERS) || [];
+  const conversionRules = loadCustomConversionRules();
+  const smartList: SmartPurchaseListItem[] = [];
+
+  // Filtrar solo materiales con faltantes
+  const shortages = materialRequirements.filter(req => req.shortage > 0);
+
+  for (const shortage of shortages) {
+    // Usar analyzePriceHistory para encontrar mejor proveedor
+    const priceAnalysis = analyzePriceHistory(shortage.materialName);
+
+    let suggestedSupplier = 'Sin proveedor';
+    let suggestedSupplierId = '';
+    let estimatedCost = 0;
+    let reasoning = 'No hay datos de precios disponibles';
+
+    if (priceAnalysis.cheapestSupplier) {
+      // Buscar el ID del proveedor por nombre
+      const supplier = suppliers.find(s =>
+        s.name.toLowerCase() === priceAnalysis.cheapestSupplier!.name.toLowerCase()
+      );
+
+      if (supplier) {
+        suggestedSupplier = supplier.name;
+        suggestedSupplierId = supplier.id;
+        estimatedCost = priceAnalysis.cheapestSupplier.price * shortage.shortage;
+        reasoning = `Mejor precio histórico: $${priceAnalysis.cheapestSupplier.price.toFixed(2)}/${shortage.unit}`;
+      }
+    } else if (suppliers.length > 0) {
+      // Si no hay historial, sugerir el primer proveedor disponible
+      suggestedSupplier = suppliers[0].name;
+      suggestedSupplierId = suppliers[0].id;
+      reasoning = 'Proveedor por defecto (sin historial de precios)';
+    }
+
+    // APLICAR CONVERSIÓN DE UNIDADES
+    let finalQuantity = shortage.shortage;
+    let finalUnit = shortage.unit;
+    const lowerMaterialName = shortage.materialName.toLowerCase().trim();
+    const normalizedBaseUnit = normalizeUnit(shortage.unit);
+
+    // Buscar regla de conversión aplicable
+    let appliedConversion = false;
+    for (const rule of conversionRules) {
+      // Verificar si la unidad base coincide
+      if (normalizeUnit(rule.baseUnit) !== normalizedBaseUnit) continue;
+
+      // Verificar si aplica a este material
+      if (rule.materialNameMatcher) {
+        const matchers = rule.materialNameMatcher.split(',').map(m => m.trim().toLowerCase());
+        if (!matchers.some(matcher => lowerMaterialName.includes(matcher))) {
+          continue; // Este material no coincide con el matcher
+        }
+      }
+
+      // Aplicar conversión: convertir de kg/l a unidades de compra (Caja, Saco, etc)
+      finalQuantity = Math.ceil(shortage.shortage / rule.factor); // Redondear hacia arriba
+      finalUnit = rule.purchaseUnit;
+      appliedConversion = true;
+
+      // Actualizar reasoning
+      if (suggestedSupplier !== 'Sin proveedor') {
+        reasoning = `${finalQuantity} ${rule.purchaseUnit} (${shortage.shortage.toFixed(2)} ${shortage.unit}). ${reasoning}`;
+      } else {
+        reasoning = `${finalQuantity} ${rule.purchaseUnit} = ${shortage.shortage.toFixed(2)} ${shortage.unit}`;
+      }
+      break; // Usar la primera regla que coincida
+    }
+
+    // Si no se aplicó conversión, mostrar cantidad en unidad base
+    if (!appliedConversion && suggestedSupplier !== 'Sin proveedor') {
+      reasoning = `${finalQuantity.toFixed(2)} ${finalUnit}. ${reasoning}`;
+    }
+
+    smartList.push({
+      materialName: shortage.materialName,
+      requiredAmount: shortage.requiredAmount,
+      unit: finalUnit, // Unidad de compra (Caja, Saco, etc) o base (kg, l)
+      shortage: finalQuantity, // Cantidad en unidades de compra
+      suggestedSupplier,
+      suggestedSupplierId,
+      estimatedCost,
+      reasoning
+    });
+  }
+
+  // Ordenar por shortage descendente (más urgente primero)
+  return smartList.sort((a, b) => b.shortage - a.shortage);
+}
+
+export interface ProvisioningAnalysis {
+  transfers: {
+    fromBranchId: string;
+    fromBranchName: string;
+    items: {
+      materialName: string;
+      quantity: number; // Cantidad a transferir
+      unit: string;
+    }[];
+  }[];
+  mustBuy: {
+    materialName: string;
+    requiredAmount: number;
+    unit: string;
+    shortage: number;
+    currentStock: number;
+  }[];
+}
+
+export function checkStockAcrossBranches(
+  shortages: { materialName: string; shortage: number; unit: string; requiredAmount: number; currentStock: number }[]
+): ProvisioningAnalysis {
+  const activeBranchId = getActiveBranchId();
+  const otherBranches = availableBranches.filter(b => b.id !== activeBranchId);
+
+  const analysis: ProvisioningAnalysis = {
+    transfers: [],
+    mustBuy: []
+  };
+
+  // Copia de los faltantes para ir descontando lo que se encuentre
+  let remainingShortages = shortages.map(s => ({ ...s }));
+
+  // Iterar por otras sedes para buscar stock
+  for (const branch of otherBranches) {
+    const branchInventory = loadRawMaterialInventoryData(branch.id);
+    const transferItems: { materialName: string; quantity: number; unit: string }[] = [];
+
+    for (let i = 0; i < remainingShortages.length; i++) {
+      const shortage = remainingShortages[i];
+      if (shortage.shortage <= 0.0001) continue;
+
+      // Buscar material en la sede origen
+      // Usamos lógica flexible de nombres y unidades
+      const sourceItem = branchInventory.find(item =>
+        item.name.toLowerCase().trim() === shortage.materialName.toLowerCase().trim()
+      );
+
+      if (sourceItem && sourceItem.quantity > 0) {
+        // Convertir unidades si es necesario
+        const conversion = convertMaterialToBaseUnit(sourceItem.quantity, sourceItem.unit, sourceItem.name);
+        const shortageInBase = convertMaterialToBaseUnit(shortage.shortage, shortage.unit, shortage.materialName);
+
+        // Verificar compatibilidad de unidades base (masa vs volumen vs unidad)
+        if (normalizeUnit(conversion.unit) === normalizeUnit(shortageInBase.unit)) {
+          // Calcular cuánto podemos transferir
+          const availableInBase = conversion.quantity;
+          const neededInBase = shortageInBase.quantity;
+
+          const transferAmountInBase = Math.min(availableInBase, neededInBase);
+
+          if (transferAmountInBase > 0) {
+            // Convertir de vuelta a la unidad del faltante para el reporte
+            // (Simplificación: asumimos que la unidad del faltante es la deseada)
+            // Si la unidad del faltante es 'kg' y transferimos 'kg', es directo.
+            // Si la unidad del faltante es 'Caja' (compra), aquí trabajamos con la unidad BASE del requerimiento (kg/l)
+            // porque 'shortage' viene en unidad de consumo (generalmente base).
+
+            // Nota: shortage.unit viene del planificador, usualmente es la unidad de la receta (kg, g, l, und).
+
+            // Calcular cantidad a transferir en la unidad original del requerimiento
+            // Regla de 3 simple basada en la conversión base
+            const transferAmountInShortageUnit = (transferAmountInBase / shortageInBase.quantity) * shortage.shortage;
+
+            transferItems.push({
+              materialName: shortage.materialName,
+              quantity: transferAmountInShortageUnit,
+              unit: shortage.unit
+            });
+
+            // Reducir el faltante pendiente
+            remainingShortages[i].shortage -= transferAmountInShortageUnit;
+          }
+        }
+      }
+    }
+
+    if (transferItems.length > 0) {
+      analysis.transfers.push({
+        fromBranchId: branch.id,
+        fromBranchName: branch.name,
+        items: transferItems
+      });
+    }
+  }
+
+  // Lo que quede faltando se debe comprar
+  analysis.mustBuy = remainingShortages.filter(s => s.shortage > 0.0001);
+
+  return analysis;
+}
+
+/**
+ * Analiza la rentabilidad real de productos basado en costos actuales de ingredientes
+ * Compara precio de venta vs costo actualizado de materia prima
+ * 100% offline
+ */
+export interface ProfitabilityAnalysis {
+  productId: string;
+  productName: string;
+  salePrice: number;
+  originalCost: number;
+  currentCost: number;
+  margin: number;
+  marginUSD: number;
+  status: 'healthy' | 'warning' | 'critical';
+  recommendation: string;
+  category: string;
+}
+
+export function analyzeProfitability(branchId?: string): ProfitabilityAnalysis[] {
+  const activeBranchId = branchId || getActiveBranchId();
+  if (!activeBranchId) return [];
+
+  const recipes = loadFromLocalStorageForBranch<Recipe[]>(KEYS.RECIPES, activeBranchId);
+  const products = loadProductsForBranch(activeBranchId);
+  const orders = loadFromLocalStorageForBranch<any[]>(KEYS.PURCHASE_ORDERS, activeBranchId);
+
+  const profitabilityList: ProfitabilityAnalysis[] = [];
+
+  // Filtrar solo productos finales (no intermedios, no despachables)
+  const finalProducts = recipes.filter(recipe =>
+    !recipe.isIntermediate &&
+    !recipe.isResoldProduct &&
+    !recipe.category?.toLowerCase().includes('no despachable')
+  );
+
+  for (const recipe of finalProducts) {
+    const product = products.find(p => p.name === recipe.name);
+    if (!product) continue;
+
+    const salePrice = product.unitPrice;
+    const originalCost = recipe.costPerUnit;
+
+    // Calcular costo actual basado en últimas compras
+    let currentCost = 0;
+    let hasCurrentPrices = false;
+
+    for (const ingredient of recipe.ingredients) {
+      // Buscar último precio de compra del ingrediente
+      let latestPrice = 0;
+      let found = false;
+
+      // Buscar en órdenes de compra, de más reciente a más antigua
+      const sortedOrders = [...orders]
+        .filter(o => o.status === 'Pagado' && o.orderDate)
+        .sort((a, b) => {
+          const dateA = parseISO(a.orderDate);
+          const dateB = parseISO(b.orderDate);
+          return dateB.getTime() - dateA.getTime();
+        });
+
+      for (const order of sortedOrders) {
+        const item = order.items?.find((i: any) =>
+          i.rawMaterialName?.toLowerCase() === ingredient.name.toLowerCase() &&
+          i.unit === ingredient.unit
+        );
+
+        if (item) {
+          latestPrice = item.unitPrice;
+          found = true;
+          hasCurrentPrices = true;
+          break;
+        }
+      }
+
+      // Si no hay precio histórico, usar precio 0 (indica que falta info)
+      currentCost += (latestPrice || 0) * ingredient.quantity;
+    }
+
+    // Si no se encontraron precios actuales, usar costo original
+    if (!hasCurrentPrices) {
+      currentCost = originalCost;
+    }
+
+    // Calcular margen
+    const marginUSD = salePrice - currentCost;
+    const margin = salePrice > 0 ? (marginUSD / salePrice) * 100 : 0;
+
+    // Determinar status
+    let status: 'healthy' | 'warning' | 'critical';
+    let recommendation: string;
+
+    if (margin < 0) {
+      status = 'critical';
+      recommendation = `⚠️ PÉRDIDA de $${Math.abs(marginUSD).toFixed(2)} por unidad. Aumentar precio o reducir costos urgentemente.`;
+    } else if (margin < 20) {
+      status = 'warning';
+      recommendation = `⚡ Margen bajo (${margin.toFixed(1)}%). Considera ajustar precio de venta.`;
+    } else {
+      status = 'healthy';
+      recommendation = `✅ Margen saludable (${margin.toFixed(1)}%). Producto rentable.`;
+    }
+
+    profitabilityList.push({
+      productId: recipe.id,
+      productName: recipe.name,
+      salePrice,
+      originalCost,
+      currentCost,
+      margin,
+      marginUSD,
+      status,
+      recommendation,
+      category: recipe.category || 'Producto Final'
+    });
+  }
+
+  // Ordenar por margen ascendente (más críticos primero)
+  return profitabilityList.sort((a, b) => a.margin - b.margin);
+}
+
+/**
+ * Analiza mermas/desperdicios comparando producción esperada vs real
+ * Detecta ineficiencias, robos o errores en recetas
+ * 100% offline
+ */
+export interface WasteAnalysis {
+  productName: string;
+  weekStart: string;
+  weekEnd: string;
+  expectedYield: number;
+  actualYield: number;
+  difference: number;
+  wastePercent: number;
+  estimatedCostLoss: number;
+  batchesProduced: number;
+  status: 'healthy' | 'warning' | 'critical';
+}
+
+export function analyzeWaste(
+  startDate: Date,
+  endDate: Date,
+  branchId?: string
+): WasteAnalysis[] {
+  const activeBranchId = branchId || getActiveBranchId();
+  if (!activeBranchId) return [];
+
+  const recipes = loadFromLocalStorageForBranch<Recipe[]>(KEYS.RECIPES, activeBranchId);
+  const productionLog = loadFromLocalStorageForBranch<ProductionLogEntry[]>(KEYS.PRODUCTION_LOG, activeBranchId);
+
+  const wasteList: WasteAnalysis[] = [];
+
+  // Filtrar logs dentro del rango de fechas
+  const logsInRange = productionLog.filter(log => {
+    if (!log.date) return false;
+    const logDate = parseISO(log.date);
+    return logDate >= startOfDay(startDate) && logDate <= endOfDay(endDate);
+  });
+
+  // Agrupar por producto
+  const productionByProduct = new Map<string, ProductionLogEntry[]>();
+  logsInRange.forEach(log => {
+    if (!productionByProduct.has(log.product)) {
+      productionByProduct.set(log.product, []);
+    }
+    productionByProduct.get(log.product)!.push(log);
+  });
+
+  // Analizar cada producto
+  for (const [productName, logs] of productionByProduct.entries()) {
+    const recipe = recipes.find(r => r.name === productName);
+    if (!recipe || recipe.isIntermediate) continue; // Solo productos finales
+
+    let totalExpected = 0;
+    let totalActual = 0;
+    let batchesProduced = 0;
+
+    logs.forEach(log => {
+      const batchMultiplier = log.batchSizeMultiplier || 1;
+      const expectedForThisBatch = (recipe.expectedYield || 0) * batchMultiplier;
+      const actualForThisBatch = log.actualQuantity || 0;
+
+      totalExpected += expectedForThisBatch;
+      totalActual += actualForThisBatch;
+      batchesProduced++;
+    });
+
+    const difference = totalExpected - totalActual;
+    const wastePercent = totalExpected > 0 ? (difference / totalExpected) * 100 : 0;
+
+    // Estimar costo de pérdida (basado en costo de receta)
+    const estimatedCostLoss = (recipe.costPerUnit || 0) * difference;
+
+    // Determinar status
+    let status: 'healthy' | 'warning' | 'critical';
+    if (wastePercent < 0) {
+      // Producción mayor a lo esperado (puede ser bueno o error de receta)
+      status = 'healthy';
+    } else if (wastePercent < 5) {
+      status = 'healthy';
+    } else if (wastePercent < 15) {
+      status = 'warning';
+    } else {
+      status = 'critical';
+    }
+
+    wasteList.push({
+      productName,
+      weekStart: format(startDate, 'yyyy-MM-dd'),
+      weekEnd: format(endDate, 'yyyy-MM-dd'),
+      expectedYield: totalExpected,
+      actualYield: totalActual,
+      difference,
+      wastePercent,
+      estimatedCostLoss,
+      batchesProduced,
+      status
+    });
+  }
+
+  // Ordenar por pérdida estimada descendente (más costoso primero)
+  return wasteList.sort((a, b) => b.estimatedCostLoss - a.estimatedCostLoss);
 }

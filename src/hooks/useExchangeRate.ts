@@ -13,7 +13,7 @@ import {
     KEYS,
     type ExchangeRateEntry
 } from '@/lib/data-storage';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, addDays, getDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 export interface UseExchangeRateReturn {
@@ -63,12 +63,24 @@ export function useExchangeRate(): UseExchangeRateReturn {
         }
 
         saveExchangeRate(rateNumber);
+
+        // Auto-save for weekend if today is Friday
+        const today = new Date();
+        let weekendMessage = '';
+        if (getDay(today) === 5) { // 5 is Friday
+            const saturday = addDays(today, 1);
+            const sunday = addDays(today, 2);
+            saveExchangeRate(rateNumber, saturday);
+            saveExchangeRate(rateNumber, sunday);
+            weekendMessage = ' (y para el fin de semana)';
+        }
+
         setCurrentRate(rateNumber);
         refreshHistory();
 
         return {
             success: true,
-            message: `La tasa de cambio USD/VES se ha guardado como ${rateNumber.toFixed(4)}.`
+            message: `La tasa de cambio USD/VES se ha guardado como ${rateNumber.toFixed(4)}${weekendMessage}.`
         };
     }, [rateInput, refreshHistory]);
 
@@ -89,13 +101,24 @@ export function useExchangeRate(): UseExchangeRateReturn {
         }
 
         saveExchangeRate(rateNumber, pastDate);
+
+        // Auto-save for weekend if pastDate is Friday
+        let weekendMessage = '';
+        if (getDay(pastDate) === 5) { // 5 is Friday
+            const saturday = addDays(pastDate, 1);
+            const sunday = addDays(pastDate, 2);
+            saveExchangeRate(rateNumber, saturday);
+            saveExchangeRate(rateNumber, sunday);
+            weekendMessage = ' y para el fin de semana siguiente';
+        }
+
         setPastDate(undefined);
         setPastRateInput('');
         refreshHistory();
 
         return {
             success: true,
-            message: `La tasa para el ${format(pastDate, "dd/MM/yyyy", { locale: es })} se ha guardado como ${rateNumber.toFixed(4)}.`
+            message: `La tasa para el ${format(pastDate, "dd/MM/yyyy", { locale: es })} se ha guardado como ${rateNumber.toFixed(4)}${weekendMessage}.`
         };
     }, [pastDate, pastRateInput, refreshHistory]);
 

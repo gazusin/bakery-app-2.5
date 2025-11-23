@@ -3,7 +3,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { TrendingUp, Calendar, Package, AlertCircle, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { TrendingUp, Calendar, Package, AlertCircle, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import {
     analyzeHistoricalSales,
     calculateMaterialRequirements,
@@ -11,15 +12,35 @@ import {
     type ProductionSuggestion,
     type MaterialRequirement
 } from '@/lib/services/production-intelligence';
-import { loadFromLocalStorage, loadFromLocalStorageForBranch, KEYS, getActiveBranchId, availableBranches } from '@/lib/data-storage';
+import {
+    loadFromLocalStorage,
+    loadFromLocalStorageForBranch,
+    KEYS,
+    getActiveBranchId,
+    availableBranches,
+    loadAllProductsFromAllBranches,
+    loadPendingProductionsData,
+    savePendingProductionsData
+} from '@/lib/data-storage';
 import type { Sale, Product, Recipe, RawMaterialInventoryItem } from '@/lib/types/db-types';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
+import { Checkbox } from '@/components/ui/checkbox';
 
 export default function ProductionPlannerPage() {
+    const router = useRouter();
+    const { toast } = useToast();
     const [targetDate, setTargetDate] = useState<Date>(new Date());
     const [suggestions, setSuggestions] = useState<ProductionSuggestion[]>([]);
     const [plannedQuantities, setPlannedQuantities] = useState<Map<string, number>>(new Map());
     const [materialRequirements, setMaterialRequirements] = useState<MaterialRequirement[]>([]);
     const [activeBranch, setActiveBranch] = useState<string>('');
+
+    // New states for execution
+    const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
+    const [isExecutionDialogOpen, setIsExecutionDialogOpen] = useState(false);
+    const [isExecuting, setIsExecuting] = useState(false);
 
     // Cargar datos y generar sugerencias (GLOBAL)
     useEffect(() => {
@@ -60,15 +81,27 @@ export default function ProductionPlannerPage() {
     }, [targetDate]);
 
     // Calcular materia prima cuando cambien las cantidades
+    // Calcular materia prima cuando cambien las cantidades
     useEffect(() => {
         if (!activeBranch || plannedQuantities.size === 0) return;
 
         const recipes = loadFromLocalStorage<Recipe[]>(KEYS.RECIPES);
         const inventory = loadFromLocalStorage<RawMaterialInventoryItem[]>(KEYS.RAW_MATERIAL_INVENTORY);
 
-        const requirements = calculateMaterialRequirements(plannedQuantities, recipes, inventory);
+        // Convertir IDs a Nombres para el cálculo de materiales
+        const plannedByName = new Map<string, number>();
+        plannedQuantities.forEach((qty, id) => {
+            const suggestion = suggestions.find(s => s.productId === id);
+            if (suggestion) {
+                plannedByName.set(suggestion.productName, qty);
+            } else {
+                plannedByName.set(id, qty);
+            }
+        });
+
+        const requirements = calculateMaterialRequirements(plannedByName, recipes, inventory);
         setMaterialRequirements(requirements);
-    }, [plannedQuantities, activeBranch]);
+    }, [plannedQuantities, activeBranch, suggestions]);
 
     const handleQuantityChange = (productId: string, newQuantity: number) => {
         const updated = new Map(plannedQuantities);
@@ -210,6 +243,18 @@ export default function ProductionPlannerPage() {
                                                     key={suggestion.productId}
                                                     className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                                                 >
+                                                    <Checkbox
+                                                        checked={selectedProducts.has(suggestion.productId)}
+                                                        onCheckedChange={(checked) => {
+                                                            const newSelected = new Set(selectedProducts);
+                                                            if (checked) {
+                                                                newSelected.add(suggestion.productId);
+                                                            } else {
+                                                                newSelected.delete(suggestion.productId);
+                                                            }
+                                                            setSelectedProducts(newSelected);
+                                                        }}
+                                                    />
                                                     <div className="flex-1">
                                                         <div className="flex items-center gap-2">
                                                             <span className="font-medium text-gray-800">{suggestion.productName}</span>
@@ -301,6 +346,176 @@ export default function ProductionPlannerPage() {
                         </div>
                     </div>
                 </div>
+
+                {/* Floating Execute Button */}
+                {/* Floating Execute Button */}
+                {suggestions.length > 0 && (
+                    <div className="fixed bottom-6 right-6 z-50">
+                        <Button
+                            onClick={() => setIsExecutionDialogOpen(true)}
+                            size="lg"
+                            disabled={selectedProducts.size === 0}
+                            className={selectedProducts.size === 0
+                                ? "bg-gray-400 hover:bg-gray-400 shadow-xl px-8 py-6 text-lg font-bold cursor-not-allowed"
+                                : "bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-2xl px-8 py-6 text-lg font-bold"
+                            }
+                        >
+                            <CheckCircle2 className="mr-2 h-6 w-6" />
+                            Enviar a Producción ({selectedProducts.size})
+                        </Button>
+                    </div>
+                )}
+
+                {/* Execution Confirmation Dialog */}
+                <Dialog open={isExecutionDialogOpen} onOpenChange={setIsExecutionDialogOpen}>
+                    <DialogContent className="max-w-2xl">
+                        <DialogHeader>
+                            <DialogTitle className="flex items-center gap-2">
+                                <CheckCircle2 className="h-6 w-6 text-green-600" />
+                                Confirmar Envío a Producción
+                            </DialogTitle>
+                            <DialogDescription>
+                                Se enviarán {selectedProducts.size} producto(s) a la cola de producción pendiente de cada sede correspondiente.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-4 max-h-96 overflow-y-auto">
+                            {Array.from(selectedProducts).map(productId => {
+                                const suggestion = suggestions.find(s => s.productId === productId);
+                                const quantity = plannedQuantities.get(productId) || 0;
+
+                                if (!suggestion || quantity === 0) return null;
+
+                                return (
+                                    <div key={productId} className="p-4 bg-gray-50 rounded-lg border">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <span className="font-semibold text-gray-800">{suggestion.productName}</span>
+                                            <span className="text-sm font-mono bg-indigo-100 text-indigo-800 px-2 py-1 rounded">
+                                                {quantity} lote(s)
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <DialogFooter>
+                            <Button
+                                variant="outline"
+                                onClick={() => setIsExecutionDialogOpen(false)}
+                                disabled={isExecuting}
+                            >
+                                Cancelar
+                            </Button>
+                            <Button
+                                onClick={async () => {
+                                    setIsExecuting(true);
+                                    try {
+                                        // 1. Cargar todos los productos para obtener sourceBranchId
+                                        const allProducts = loadAllProductsFromAllBranches();
+
+                                        // 2. Cargar todas las recetas para calcular batchMultiplier
+                                        const allRecipesMap = new Map<string, Recipe>();
+                                        availableBranches.forEach(branch => {
+                                            const recipes = loadFromLocalStorageForBranch<Recipe[]>(KEYS.RECIPES, branch.id) || [];
+                                            recipes.forEach(r => allRecipesMap.set(r.name.toLowerCase(), r));
+                                        });
+
+                                        // 3. Agrupar ítems por sede
+                                        const pendingItemsByBranch = new Map<string, any[]>();
+
+                                        Array.from(selectedProducts).forEach(productId => {
+                                            const suggestion = suggestions.find(s => s.productId === productId);
+                                            const quantity = plannedQuantities.get(productId) || 0;
+
+                                            if (suggestion && quantity > 0) {
+                                                const product = allProducts.find(p => p.id === productId);
+                                                if (!product || !product.sourceBranchId) {
+                                                    console.warn(`Producto ${suggestion.productName} no tiene sede asignada.`);
+                                                    return;
+                                                }
+
+                                                const branchId = product.sourceBranchId;
+                                                const branchName = availableBranches.find(b => b.id === branchId)?.name || 'Desconocida';
+
+                                                // Calcular batchMultiplier
+                                                const recipe = allRecipesMap.get(suggestion.productName.toLowerCase());
+                                                let batchMultiplier = 1;
+                                                if (recipe && typeof recipe.expectedYield === 'number' && recipe.expectedYield > 0) {
+                                                    batchMultiplier = parseFloat((quantity / recipe.expectedYield).toFixed(2));
+                                                }
+
+                                                const pendingItem = {
+                                                    id: `PEND-${Date.now()}-${productId}-${Math.random().toString(36).substr(2, 5)}`,
+                                                    productId,
+                                                    productName: suggestion.productName,
+                                                    plannedQuantity: quantity,
+                                                    batchMultiplier,
+                                                    branchId,
+                                                    branchName,
+                                                    date: format(targetDate, 'yyyy-MM-dd'),
+                                                    status: 'pending',
+                                                    timestamp: new Date().toISOString()
+                                                };
+
+                                                if (!pendingItemsByBranch.has(branchId)) {
+                                                    pendingItemsByBranch.set(branchId, []);
+                                                }
+                                                pendingItemsByBranch.get(branchId)!.push(pendingItem);
+                                            }
+                                        });
+
+                                        // 4. Guardar por sede
+                                        let totalSent = 0;
+                                        const summaryBranches: string[] = [];
+
+                                        pendingItemsByBranch.forEach((items, branchId) => {
+                                            const existing = loadPendingProductionsData(branchId);
+                                            savePendingProductionsData(branchId, [...existing, ...items]);
+                                            totalSent += items.length;
+                                            const bName = items[0].branchName;
+                                            summaryBranches.push(`${bName} (${items.length})`);
+                                        });
+
+                                        toast({
+                                            title: "✅ Enviado a Producción",
+                                            description: `${totalSent} órdenes enviadas a: ${summaryBranches.join(', ')}`,
+                                            duration: 4000
+                                        });
+
+                                        setSelectedProducts(new Set());
+                                        setIsExecutionDialogOpen(false);
+                                        router.push('/production');
+
+                                    } catch (error) {
+                                        console.error(error);
+                                        toast({
+                                            title: "Error",
+                                            description: "No se pudo enviar a producción.",
+                                            variant: "destructive"
+                                        });
+                                    } finally {
+                                        setIsExecuting(false);
+                                    }
+                                }}
+                                disabled={isExecuting}
+                                className="bg-green-600 hover:bg-green-700"
+                            >
+                                {isExecuting ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Enviando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                                        Confirmar Envío
+                                    </>
+                                )}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </div>
         </div>
     );

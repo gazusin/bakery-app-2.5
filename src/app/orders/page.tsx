@@ -29,31 +29,20 @@ import type { DateRange } from "react-day-picker";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import {
-  type Product,
   salesData as initialSalesDataGlobal,
   saveSalesData,
-  type Sale,
-  type SaleItem,
-  type SaleBranchDetail,
   customersData as initialCustomersDataGlobal,
   saveCustomersData,
-  type Customer,
   salePaymentMethods,
   loadExchangeRate,
-  type AccountTransaction,
-  type CompanyAccountsData,
-  type AccountType,
   accountTypeNames,
   getInvoiceStatus,
-  type SaleStatus,
   paymentsData as initialPaymentsData,
   savePaymentsData,
-  type Payment,
   KEYS,
   loadAllProductsFromAllBranches,
   loadProductsForBranch,
   saveProductsDataForBranch,
-  type PendingFundTransfer,
   savePendingFundTransfersData,
   pendingFundTransfersData as initialPendingFundTransfersData,
   availableBranches,
@@ -61,22 +50,16 @@ import {
   loadFromLocalStorageForBranch,
   saveToLocalStorageForBranch,
   calculateCustomerBalance,
-  type PaymentSplit,
-  type PaymentMethodType,
   paymentMethodList,
   suppliersData as initialSuppliersData,
   getBestPriceInfo,
   getCurrentPriceFromHistory,
   loadCompanyAccountsData,
-  type PurchaseOrderStatus,
   savePurchaseOrdersData,
   updateRawMaterialInventoryFromOrder,
   addRawMaterialOption,
   removeRawMaterialOption,
   saveSuppliersData,
-  type PriceHistoryEntry,
-  type PurchaseOrder,
-  type PurchaseOrderItem,
   purchaseOrderStatusList,
   updateSupplierPriceList,
   updateCompanyAccountAndExpensesForPO,
@@ -85,12 +68,15 @@ import {
   loadPurchaseOrdersFromStorage,
   convertMaterialToBaseUnit,
   normalizeUnit,
-  type PricePointInfo,
-  type Supplier,
-  type Recipe,
   checkDuplicateReference,
   validateReferenceFormat
 } from '@/lib/data-storage';
+import type {
+  Product, Sale, SaleItem, SaleBranchDetail, Customer, AccountTransaction,
+  CompanyAccountsData, AccountType, SaleStatus, Payment, PendingFundTransfer,
+  PaymentSplit, PaymentMethodType, PurchaseOrderStatus, PriceHistoryEntry,
+  PurchaseOrder, PurchaseOrderItem, PricePointInfo, Supplier, Recipe
+} from '@/lib/types/db-types';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -98,6 +84,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/comp
 import { ManageConversionsDialog } from '@/components/orders/manage-conversions-dialog';
 import { FormattedNumber } from '@/components/ui/formatted-number';
 import { processInvoice, type ProcessInvoiceInput, type ProcessInvoiceOutput } from '@/ai/flows/process-invoice-flow';
+import { PriceAnalysisAI } from '@/components/ai/price-analysis-ai';
 import type jsPDF from 'jspdf';
 
 
@@ -253,16 +240,60 @@ export default function OrdersPage() {
       referenceNumber: '', items: []
     }]);
 
-    setGlobalOrderItems([{
-      id: generateUniqueItemId('global-item-load', []),
-      rawMaterialName: '', quantity: 0, unit: commonUnitOptions[0] || '',
-      unitPrice: 0, subtotal: 0, bestPriceHint: '', manualPriceEdit: false,
-      unitPriceDisplayUSD: "0", unitPriceDisplayVES: "0.00",
-      priceInputCurrency: 'VES'
-    }]);
+    // Check for autofill from production planner (sessionStorage)
+    const autofillData = sessionStorage.getItem('autofill_purchase_order');
+    if (autofillData) {
+      try {
+        const parsed = JSON.parse(autofillData);
+        if (parsed.items && Array.isArray(parsed.items) && parsed.items.length > 0) {
+          const newItems: PurchaseOrderItemExtended[] = parsed.items.map((item: any, idx: number) => {
+            const unitPrice = 0;
+            return {
+              id: generateUniqueItemId(`autofill-item-${idx}`, []),
+              rawMaterialName: item.materialName,
+              quantity: item.quantity,
+              unit: item.unit,
+              unitPrice,
+              subtotal: 0,
+              bestPriceHint: item.reasoning || '',
+              manualPriceEdit: false,
+              unitPriceDisplayUSD: "0.0000",
+              unitPriceDisplayVES: "0.00",
+              priceInputCurrency: 'USD' as 'USD' | 'VES'
+            };
+          });
+          setGlobalOrderItems(newItems);
+
+          if (parsed.items[0]?.suggestedSupplierId) {
+            setSelectedSupplierId(parsed.items[0].suggestedSupplierId);
+          }
+
+          toast({
+            title: "✅ Orden Pre-llenada",
+            description: `${parsed.items.length} materiales cargados desde el Planificador.`,
+            duration: 5000
+          });
+          sessionStorage.removeItem('autofill_purchase_order');
+
+          // IMPORTANTE: Abrir el diálogo automáticamente y asegurar estado Pendiente para ver los items
+          setCurrentOrderStatus('Pendiente');
+          setIsPODialogOpen(true);
+        }
+      } catch (error) {
+        console.error('Error parsing autofill data:', error);
+      }
+    } else {
+      setGlobalOrderItems([{
+        id: generateUniqueItemId('global-item-load', []),
+        rawMaterialName: '', quantity: 0, unit: commonUnitOptions[0] || '',
+        unitPrice: 0, subtotal: 0, bestPriceHint: '', manualPriceEdit: false,
+        unitPriceDisplayUSD: "0", unitPriceDisplayVES: "0.00",
+        priceInputCurrency: 'VES'
+      }]);
+    }
 
     setIsLoading(false);
-  }, [selectedSupplierId, toast, generateUniqueItemId]);
+  }, [toast, generateUniqueItemId]);
 
 
   useEffect(() => {
@@ -271,7 +302,7 @@ export default function OrdersPage() {
 
 
   const updateItemsForNewSupplier = useCallback((
-    currentItems: PurchaseOrderItemExtended[],
+    currentItems: (PurchaseOrderItem | PurchaseOrderItemExtended)[],
     supplierId: string,
     currentGlobalExchangeRate: number
   ): PurchaseOrderItemExtended[] => {
@@ -281,9 +312,15 @@ export default function OrdersPage() {
     const formatVes = (price: number) => (currentGlobalExchangeRate > 0 ? (price * currentGlobalExchangeRate).toFixed(2) : "0.00");
 
     return currentItems.map(item => {
-      if (item.manualPriceEdit || !item.rawMaterialName) return item;
+      const extendedItem = item as PurchaseOrderItemExtended;
+      if (extendedItem.manualPriceEdit || !item.rawMaterialName) return {
+        ...item,
+        unitPriceDisplayUSD: extendedItem.unitPriceDisplayUSD || item.unitPrice.toFixed(4),
+        unitPriceDisplayVES: extendedItem.unitPriceDisplayVES || formatVes(item.unitPrice),
+        priceInputCurrency: extendedItem.priceInputCurrency || 'USD'
+      } as PurchaseOrderItemExtended;
 
-      let newItemData = { ...item };
+      const newItemData = { ...item } as PurchaseOrderItemExtended;
       const listToUse = item.priceInputCurrency === 'USD' ? supplier.priceListUSDCash : supplier.priceList;
       let newUnitPrice = item.unitPrice;
       let priceFound = false;
@@ -523,8 +560,15 @@ export default function OrdersPage() {
     value: string | number,
     splitIndex?: number
   ) => {
-    const updateItemsState = (prevItems: PurchaseOrderItemExtended[]) => {
-      const newItems = [...prevItems];
+    const updateItemsState = (prevItems: (PurchaseOrderItem | PurchaseOrderItemExtended)[]) => {
+      const newItems = prevItems.map(item => ({
+        ...item,
+        unitPriceDisplayUSD: (item as any).unitPriceDisplayUSD || item.unitPrice.toFixed(4),
+        unitPriceDisplayVES: (item as any).unitPriceDisplayVES || (exchangeRate > 0 ? (item.unitPrice * exchangeRate).toFixed(2) : "0.00"),
+        priceInputCurrency: (item as any).priceInputCurrency || 'USD',
+        manualPriceEdit: (item as any).manualPriceEdit || false
+      })) as PurchaseOrderItemExtended[];
+
       const updatedItem = { ...newItems[itemIndex] };
       const supplier = currentSuppliers.find(s => s.id === selectedSupplierId);
 
@@ -1239,6 +1283,8 @@ export default function OrdersPage() {
   };
 
 
+
+
   const handleMarkAsPaid = (poId: string) => {
     const poToEdit = allPurchaseOrders.find(p => p.id === poId);
     if (poToEdit) {
@@ -1802,6 +1848,12 @@ export default function OrdersPage() {
                     "text-muted-foreground"
               )}>{item.bestPriceHint}</p>
             )}
+            <div className="pt-1">
+              <PriceAnalysisAI
+                materialName={item.rawMaterialName}
+                supplierId={selectedSupplierId}
+              />
+            </div>
           </div>
           <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">{index === 0 && <Label htmlFor={`global_item_quantity_${item.id}_oc`} className="text-xs">Cant.</Label>}<Input id={`global_item_quantity_${item.id}_oc`} type="number" placeholder="Cant." value={item.quantity ?? 0} onChange={(e) => handleItemChange(index, 'quantity', e.target.value)} min="0" className="h-9" disabled={isSubmitting} /></div>
           <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">{index === 0 && <Label htmlFor={`global_item_unit_${item.id}_oc`} className="text-xs">Unidad</Label>}<Select value={item.unit} onValueChange={(value) => handleItemChange(index, 'unit', value)} disabled={isSubmitting}><SelectTrigger id={`global_item_unit_${item.id}_oc`} className="h-9"><SelectValue placeholder="Unidad" /></SelectTrigger><SelectContent>{commonUnitOptions.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></div>
@@ -1848,6 +1900,16 @@ export default function OrdersPage() {
     </div>
   );
 
+  const handleSplitChange = (splitId: string, field: keyof PaymentSplit, value: any, formType: 'new' | 'edit') => {
+    const listSetter = formType === 'edit' ? setEditPaymentSplits : setNewPaymentSplits;
+    listSetter(prev => prev.map(split => {
+      if (split.id === splitId) {
+        return { ...split, [field]: value };
+      }
+      return split;
+    }));
+  };
+
   const renderPaymentSplitsSection = () => {
     const paymentSplitsToRender = isEditingPO ? editPaymentSplits : newPaymentSplits;
     const formTypeForSplits = isEditingPO ? 'edit' : 'new';
@@ -1883,6 +1945,14 @@ export default function OrdersPage() {
           } else {
             splitAmountToDisplay = splitItemsTotalUSD;
           }
+
+          // Map items to PurchaseOrderItemExtended to satisfy type requirements
+          const extendedItems: PurchaseOrderItemExtended[] = (split.items || []).map(item => ({
+            ...item,
+            unitPriceDisplayUSD: (item as any).unitPriceDisplayUSD || item.unitPrice.toFixed(4),
+            unitPriceDisplayVES: (item as any).unitPriceDisplayVES || (item.unitPrice * exchangeRate).toFixed(2),
+            priceInputCurrency: (item as any).priceInputCurrency || 'USD'
+          }));
 
           return (
             <div key={split.id} className="border-b pb-3 mb-3 last:border-b-0 last:pb-0 last:mb-0 bg-background p-2 rounded-md shadow-sm">
@@ -1951,7 +2021,7 @@ export default function OrdersPage() {
                   <Button type="button" variant="ghost" size="icon" onClick={() => handleRemovePaymentSplit(split.id, formTypeForSplits)} disabled={isSubmitting || paymentSplitsToRender.length <= 1} className="h-9 w-9 text-destructive hover:bg-destructive/10"><Trash className="h-4 w-4" /></Button>
                 </div>
               </div>
-              {renderItemsForSplitSection(index, split.items || [])}
+              {renderItemsForSplitSection(index, extendedItems)}
             </div>
           )
         })}
@@ -1985,6 +2055,12 @@ export default function OrdersPage() {
                         "text-muted-foreground"
                   )}>{item.bestPriceHint}</p>
                 )}
+                <div className="pt-1">
+                  <PriceAnalysisAI
+                    materialName={item.rawMaterialName}
+                    supplierId={selectedSupplierId}
+                  />
+                </div>
               </div>
               <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">{itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_quantity_${item.id}_oc`} className="text-xs">Cant.</Label>}<Input id={`split${splitIndex}_item_quantity_${item.id}_oc`} type="number" placeholder="Cant." value={item.quantity ?? 0} onChange={(e) => handleItemChange(itemIndex, 'quantity', e.target.value, splitIndex)} min="0" className="h-8 text-xs" disabled={isSubmitting} /></div>
               <div className="col-span-4 sm:col-span-2 lg:col-span-1 space-y-0.5">{itemIndex === 0 && <Label htmlFor={`split${splitIndex}_item_unit_${item.id}_oc`} className="text-xs">Unidad</Label>}<Select value={item.unit} onValueChange={(value) => handleItemChange(itemIndex, 'unit', value, splitIndex)} disabled={isSubmitting}><SelectTrigger id={`split${splitIndex}_item_unit_${item.id}_oc`} className="h-8 text-xs"><SelectValue placeholder="Unidad" /></SelectTrigger><SelectContent>{commonUnitOptions.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></div>
@@ -2028,7 +2104,7 @@ export default function OrdersPage() {
             </div>
           )
         })}
-        <Button type="button" variant="outline" size="xs" className="mt-1" onClick={() => handleAddItemToSplit(splitIndex)} disabled={isSubmitting || currentRawMaterialOptions.length === 0}>
+        <Button type="button" variant="outline" size="sm" className="mt-1" onClick={() => handleAddItemToSplit(splitIndex)} disabled={isSubmitting || currentRawMaterialOptions.length === 0}>
           <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Añadir Artículo a este Pago
         </Button>
       </div>

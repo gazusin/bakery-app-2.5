@@ -26,12 +26,14 @@ export default function InsightsPage() {
     const products = loadAllProductsFromAllBranches();
     const customers = customersData;
     const expenses: any[] = loadFromLocalStorage(KEYS.EXPENSES) || [];
+    const recipes: any[] = loadFromLocalStorage(KEYS.RECIPES) || [];
 
     const { insights, highPriorityCount, actionableCount } = useBusinessInsights(
         sales,
         products,
         customers,
-        expenses
+        expenses,
+        recipes
     );
 
     const handleActionClick = (insight: Insight) => {

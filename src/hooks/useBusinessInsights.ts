@@ -69,7 +69,8 @@ export function useBusinessInsights(
     sales: Sale[],
     products: Product[],
     customers: Customer[],
-    expenses: any[] = []
+    expenses: any[] = [],
+    recipes: Recipe[] = []
 ) {
 
     const insights = useMemo(() => {
@@ -246,13 +247,117 @@ export function useBusinessInsights(
             });
         }
 
+        // 8. PRODUCT PROFITABILITY - Rentabilidad por producto
+        if (recipes.length > 0) {
+            const profitableProducts = analyzeMostProfitableProducts(sales, recipes);
+            profitableProducts.forEach((product, index) => {
+                if (index < 3) {
+                    generatedInsights.push({
+                        id: `profitable-${product.productId}`,
+                        type: 'success',
+                        category: 'finance',
+                        title: `💎 ${product.name} - Producto Rentable #${index + 1}`,
+                        description: `Genera $${product.marginPerUnit.toFixed(2)} de margen por unidad (${product.marginPercent.toFixed(0)}% margen). Ventas: ${product.weeklySales} uds/semana = $${product.weeklyProfit.toFixed(2)} utilidad.`,
+                        recommendation: product.marginPercent > 60
+                            ? '¡Excelente rentabilidad! Considera incrementar producción.'
+                            : product.marginPercent > 40
+                                ? 'Rentabilidad saludable. Mantén este producto en tu mix.'
+                                : 'Margen aceptable. Evalúa si puedes optimizar costos.',
+                        priority: index === 0 ? 'medium' : 'low',
+                        metrics: [
+                            { label: 'Margen/unidad', value: `$${product.marginPerUnit.toFixed(2)}` },
+                            { label: '% Margen', value: `${product.marginPercent.toFixed(0)}%`, trend: product.marginPercent > 50 ? 'up' : 'neutral' },
+                            { label: 'Ventas semanales', value: `${product.weeklySales} un.` },
+                            { label: 'Utilidad/semana', value: `$${product.weeklyProfit.toFixed(2)}` }
+                        ],
+                        actionable: !product.hasRecipe,
+                        actionLabel: product.hasRecipe ? undefined : 'Agregar Receta'
+                    });
+                }
+            });
+        }
+
+        // 9. SEASONAL PATTERNS - Patrones estacionales
+        const seasonalPatterns = detectSeasonalPatterns(sales);
+        seasonalPatterns.forEach((pattern, index) => {
+            generatedInsights.push({
+                id: `seasonal-${pattern.productId}`,
+                type: 'info',
+                category: 'forecast',
+                title: `📅 ${pattern.name} - Patrón ${pattern.peakDays}`,
+                description: `Este producto vende ${pattern.increasePercent}% más los ${pattern.peakDays} vs otros días. Patrón detectado con ${pattern.confidence}% de confianza.`,
+                recommendation: pattern.pattern === 'weekend'
+                    ? `Aumenta producción 30-40% los ${pattern.peakDays}. Asegura stock antes del fin de semana.`
+                    : `Incrementa inventario específicamente para ${pattern.peakDays}.`,
+                priority: pattern.increasePercent > 50 ? 'medium' : 'low',
+                metrics: [
+                    { label: 'Incremento', value: `+${pattern.increasePercent}%`, trend: 'up' },
+                    { label: 'Días pico', value: pattern.peakDays },
+                    { label: 'Confiabilidad', value: `${pattern.confidence}%` }
+                ],
+                actionable: false
+            });
+        });
+
+        // 10. INVENTORY TURNOVER - Rotación de inventario
+        const turnoverInsights = calculateInventoryTurnover(products, sales);
+        turnoverInsights.forEach(item => {
+            generatedInsights.push({
+                id: `turnover-${item.productId}`,
+                type: item.type,
+                category: 'inventory',
+                title: item.title,
+                description: item.type === 'success'
+                    ? `Rotación ${item.turnoverRate}x al mes. Este producto mueve capital eficientemente (${item.daysInStock} días en stock).`
+                    : item.type === 'warning'
+                        ? `Rotación ${item.turnoverRate}x al mes (${item.daysInStock} días en stock). Aceptable pero podría mejorar.`
+                        : `Rotación lenta: ${item.turnoverRate}x al mes (${item.daysInStock} días en stock). Capital atascado.`,
+                recommendation: item.type === 'danger'
+                    ? '⚠️ ACCIÓN: Reduce producción o implementa promociones para mover stock más rápido.'
+                    : item.type === 'success'
+                        ? 'Modelo de referencia. Otros productos deberían aspirar a esta velocidad.'
+                        : 'Evalúa si puedes reducir stock promedio o incrementar ventas.',
+                priority: item.type === 'danger' ? 'high' : item.type === 'success' ? 'low' : 'medium',
+                metrics: [
+                    { label: 'Rotación mensual', value: `${item.turnoverRate}x` },
+                    { label: 'Días en stock', value: item.daysInStock },
+                    { label: 'Benchmark', value: item.benchmark }
+                ],
+                actionable: item.type === 'danger'
+            });
+        });
+
+        // 11. OPPORTUNITY COST - Costo de oportunidad
+        if (recipes.length > 0) {
+            const opportunityCosts = calculateOpportunityCost(products, recipes, sales);
+            opportunityCosts.forEach(opp => {
+                generatedInsights.push({
+                    id: opp.id,
+                    type: 'warning',
+                    category: 'finance',
+                    title: opp.title,
+                    description: `"${opp.productA}" genera $${opp.profitPerHourA}/h vs "${opp.productB}" con $${opp.profitPerHourB}/h (+${opp.percentDiff}% más rentable).`,
+                    recommendation: `Reduce producción de "${opp.productA}" e incrementa "${opp.productB}". Ganancia estimada: +$${opp.dailyGainEstimate}/día.`,
+                    priority: opp.percentDiff > 50 ? 'medium' : 'low',
+                    metrics: [
+                        { label: `${opp.productA} ($/h)`, value: `$${opp.profitPerHourA}` },
+                        { label: `${opp.productB} ($/h)`, value: `$${opp.profitPerHourB}`, trend: 'up' },
+                        { label: 'Diferencia', value: `+${opp.percentDiff}%` },
+                        { label: 'Ganancia extra/día', value: `$${opp.dailyGainEstimate}` }
+                    ],
+                    actionable: true,
+                    actionLabel: 'Ajustar Producción'
+                });
+            });
+        }
+
         // Ordenar por prioridad
         return generatedInsights.sort((a, b) => {
             const priorityOrder = { high: 0, medium: 1, low: 2 };
             return priorityOrder[a.priority] - priorityOrder[b.priority];
         });
 
-    }, [sales, products, customers, expenses]);
+    }, [sales, products, customers, expenses, recipes]);
 
     return {
         insights,
@@ -506,3 +611,350 @@ function analyzeBestSellingDay(sales: Sale[]) {
 
     return dayAverages.sort((a, b) => b.avgRevenue - a.avgRevenue)[0];
 }
+
+// ===== NUEVOS INSIGHTS ESTRATÉGICOS =====
+
+interface Recipe {
+    id: string;
+    name: string;
+    costPerUnit: number;
+}
+
+/**
+ * 1. Analiza los productos más rentables
+ * Calcula margen por unidad y utilidad total
+ */
+function analyzeMostProfitableProducts(sales: Sale[], recipes: Recipe[]) {
+    const today = new Date();
+    const oneWeekAgo = subWeeks(today, 1);
+
+    // Calcular ventas y rentabilidad por producto
+    const productProfitability: Record<string, {
+        productName: string;
+        totalSales: number;
+        totalRevenue: number;
+        totalCost: number;
+        avgSalePrice: number;
+        costPerUnit: number;
+    }> = {};
+
+    sales.forEach(sale => {
+        const saleDate = parseISO(sale.date);
+        if (isWithinInterval(saleDate, { start: oneWeekAgo, end: today })) {
+            sale.itemsPerBranch.forEach(branch => {
+                branch.items.forEach(item => {
+                    if (!productProfitability[item.productId]) {
+                        const recipe = recipes.find(r =>
+                            r.name.toLowerCase() === item.productName.toLowerCase()
+                        );
+                        const cost = recipe?.costPerUnit || item.unitPrice * 0.4; // Estimar 40% si no hay receta
+
+                        productProfitability[item.productId] = {
+                            productName: item.productName,
+                            totalSales: 0,
+                            totalRevenue: 0,
+                            totalCost: 0,
+                            avgSalePrice: item.unitPrice,
+                            costPerUnit: cost
+                        };
+                    }
+
+                    const data = productProfitability[item.productId];
+                    data.totalSales += item.quantity;
+                    data.totalRevenue += item.subtotal;
+                    data.totalCost += data.costPerUnit * item.quantity;
+                });
+            });
+        }
+    });
+
+    // Calcular métricas de rentabilidad
+    const profitableProducts = Object.entries(productProfitability)
+        .map(([productId, data]) => {
+            const marginPerUnit = data.avgSalePrice - data.costPerUnit;
+            const marginPercent = data.avgSalePrice > 0
+                ? (marginPerUnit / data.avgSalePrice) * 100
+                : 0;
+            const totalProfit = data.totalRevenue - data.totalCost;
+
+            return {
+                productId,
+                name: data.productName,
+                costPerUnit: data.costPerUnit,
+                avgSalePrice: data.avgSalePrice,
+                marginPerUnit,
+                marginPercent,
+                weeklySales: data.totalSales,
+                weeklyProfit: totalProfit,
+                hasRecipe: recipes.some(r => r.name.toLowerCase() === data.productName.toLowerCase())
+            };
+        })
+        .filter(p => p.weeklySales > 5 && p.marginPercent > 0) // Solo productos con ventas significativas
+        .sort((a, b) => b.weeklyProfit - a.weeklyProfit); // Ordenar por utilidad total
+
+    return profitableProducts.slice(0, 3); // Top 3
+}
+
+/**
+ * 2. Detecta patrones estacionales (día de semana)
+ * Identifica productos que venden más en ciertos días
+ */
+function detectSeasonalPatterns(sales: Sale[]) {
+    const today = new Date();
+    const fourWeeksAgo = subWeeks(today, 4);
+
+    // Agrupar ventas por producto y día de semana
+    const productDaySales: Record<string, {
+        name: string;
+        byDay: Record<string, number[]>; // día => [semana1, semana2, ...]
+    }> = {};
+
+    sales.forEach(sale => {
+        const saleDate = parseISO(sale.date);
+        if (isWithinInterval(saleDate, { start: fourWeeksAgo, end: today })) {
+            const dayName = format(saleDate, 'EEEE', { locale: es });
+            const capitalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+
+            sale.itemsPerBranch.forEach(branch => {
+                branch.items.forEach(item => {
+                    if (!productDaySales[item.productId]) {
+                        productDaySales[item.productId] = {
+                            name: item.productName,
+                            byDay: {
+                                'Lunes': [], 'Martes': [], 'Miércoles': [],
+                                'Jueves': [], 'Viernes': [], 'Sábado': [], 'Domingo': []
+                            }
+                        };
+                    }
+
+                    if (!productDaySales[item.productId].byDay[capitalizedDay]) {
+                        productDaySales[item.productId].byDay[capitalizedDay] = [];
+                    }
+
+                    productDaySales[item.productId].byDay[capitalizedDay].push(item.quantity);
+                });
+            });
+        }
+    });
+
+    // Analizar patrones
+    const patterns = [];
+
+    for (const [productId, data] of Object.entries(productDaySales)) {
+        const dayAverages: Record<string, number> = {};
+
+        // Calcular promedio por día
+        Object.entries(data.byDay).forEach(([day, sales]) => {
+            dayAverages[day] = sales.length > 0
+                ? sales.reduce((a, b) => a + b, 0) / sales.length
+                : 0;
+        });
+
+        // Calcular promedio general
+        const overallAvg = Object.values(dayAverages).reduce((a, b) => a + b, 0) / 7;
+
+        // Buscar días con incremento significativo (>30%)
+        const peakDays = Object.entries(dayAverages)
+            .filter(([_, avg]) => avg > overallAvg * 1.3)
+            .map(([day, _]) => day);
+
+        if (peakDays.length > 0 && overallAvg > 2) { // Solo si hay ventas consistentes
+            const peakAvg = peakDays.reduce((sum, day) => sum + dayAverages[day], 0) / peakDays.length;
+            const increasePercent = ((peakAvg - overallAvg) / overallAvg) * 100;
+
+            // Calcular confianza (consistencia de ventas)
+            const allSales = Object.values(data.byDay).flat();
+            const stdDev = Math.sqrt(
+                allSales.reduce((sum, val) => sum + Math.pow(val - overallAvg, 2), 0) / allSales.length
+            );
+            const confidence = Math.max(0, Math.min(100, 100 - (stdDev / overallAvg) * 50));
+
+            patterns.push({
+                productId,
+                name: data.name,
+                pattern: peakDays.length >= 2 ? 'weekend' as const : 'specific-day' as const,
+                peakDays: peakDays.join(', '),
+                increasePercent: Math.round(increasePercent),
+                confidence: Math.round(confidence),
+                overallAvg
+            });
+        }
+    }
+
+    return patterns
+        .filter(p => p.confidence > 60) // Solo patrones confiables
+        .sort((a, b) => b.increasePercent - a.increasePercent)
+        .slice(0, 3); // Top 3 patrones más fuertes
+}
+
+/**
+ * 3. Calcula velocidad de rotación de inventario
+ * Identifica productos que rotan rápido vs lento
+ */
+function calculateInventoryTurnover(products: Product[], sales: Sale[]) {
+    const today = new Date();
+    const thirtyDaysAgo = subWeeks(today, 4);
+
+    // Calcular ventas mensuales por producto
+    const monthlySales: Record<string, number> = {};
+
+    sales.forEach(sale => {
+        const saleDate = parseISO(sale.date);
+        if (isWithinInterval(saleDate, { start: thirtyDaysAgo, end: today })) {
+            sale.itemsPerBranch.forEach(branch => {
+                branch.items.forEach(item => {
+                    monthlySales[item.productId] = (monthlySales[item.productId] || 0) + item.quantity;
+                });
+            });
+        }
+    });
+
+    const turnoverAnalysis = products
+        .filter(p => p.stock > 0 && monthlySales[p.id]) // Solo productos con stock y ventas
+        .map(product => {
+            const monthSales = monthlySales[product.id] || 0;
+            const avgStock = product.stock; // Simplificado: usar stock actual
+
+            // Rotación = Ventas / Stock promedio
+            const turnoverRate = avgStock > 0 ? monthSales / avgStock : 0;
+            const daysInStock = turnoverRate > 0 ? 30 / turnoverRate : 999;
+
+            let type: 'success' | 'warning' | 'danger' = 'success';
+            let title = '';
+            let benchmark = '15-20x óptimo';
+
+            if (turnoverRate >= 15) {
+                type = 'success';
+                title = `⚡ ${product.name} - Rotación Óptima`;
+            } else if (turnoverRate >= 8) {
+                type = 'warning';
+                title = `🔄 ${product.name} - Rotación Normal`;
+                benchmark = '8-15x aceptable';
+            } else {
+                type = 'danger';
+                title = `🐌 ${product.name} - Rotación Lenta`;
+                benchmark = '<8x bajo';
+            }
+
+            return {
+                productId: product.id,
+                name: product.name,
+                type,
+                title,
+                turnoverRate: Math.round(turnoverRate * 10) / 10,
+                daysInStock: Math.round(daysInStock * 10) / 10,
+                benchmark,
+                monthSales
+            };
+        })
+        .sort((a, b) => {
+            // Priorizar extremos: muy rápido (éxito) y muy lento (problema)
+            if (a.type === 'danger' && b.type !== 'danger') return -1;
+            if (b.type === 'danger' && a.type !== 'danger') return 1;
+            if (a.type === 'success' && b.type !== 'success') return -1;
+            if (b.type === 'success' && a.type !== 'success') return 1;
+            return b.turnoverRate - a.turnoverRate;
+        });
+
+    return turnoverAnalysis.slice(0, 3); // Top 3 casos relevantes
+}
+
+/**
+ * 4. Calcula costo de oportunidad
+ * Compara productos para optimizar recursos de producción
+ */
+function calculateOpportunityCost(products: Product[], recipes: Recipe[], sales: Sale[]) {
+    const today = new Date();
+    const twoWeeksAgo = subWeeks(today, 2);
+
+    // Calcular margen y volumen por producto
+    const productMetrics: Record<string, {
+        name: string;
+        margin: number;
+        weeklySales: number;
+        category?: string;
+    }> = {};
+
+    sales.forEach(sale => {
+        const saleDate = parseISO(sale.date);
+        if (isWithinInterval(saleDate, { start: twoWeeksAgo, end: today })) {
+            sale.itemsPerBranch.forEach(branch => {
+                branch.items.forEach(item => {
+                    const recipe = recipes.find(r =>
+                        r.name.toLowerCase() === item.productName.toLowerCase()
+                    );
+                    const cost = recipe?.costPerUnit || item.unitPrice * 0.4;
+                    const margin = item.unitPrice - cost;
+
+                    if (!productMetrics[item.productId]) {
+                        productMetrics[item.productId] = {
+                            name: item.productName,
+                            margin,
+                            weeklySales: 0,
+                            category: products.find(p => p.id === item.productId)?.category
+                        };
+                    }
+
+                    productMetrics[item.productId].weeklySales += item.quantity;
+                });
+            });
+        }
+    });
+
+    // Estimar $/hora (simplificado: asumiendo 1h producción promedio)
+    // En la realidad, esto debería venir de datos de producción reales
+    const productsByCategory: Record<string, Array<{ id: string; name: string; profitPerHour: number; weeklySales: number }>> = {};
+
+    Object.entries(productMetrics).forEach(([productId, data]) => {
+        const category = data.category || 'General';
+        const profitPerHour = data.margin * (data.weeklySales / 7 / 8); // Asumiendo 8h/día
+
+        if (!productsByCategory[category]) {
+            productsByCategory[category] = [];
+        }
+
+        productsByCategory[category].push({
+            id: productId,
+            name: data.name,
+            profitPerHour,
+            weeklySales: data.weeklySales
+        });
+    });
+
+    // Buscar oportunidades de optimización
+    const opportunities = [];
+
+    Object.entries(productsByCategory).forEach(([category, products]) => {
+        if (products.length >= 2) {
+            // Ordenar por rentabilidad/hora
+            products.sort((a, b) => b.profitPerHour - a.profitPerHour);
+
+            const best = products[0];
+            const worst = products[products.length - 1];
+
+            // Solo sugerir si la diferencia es significativa (>30%)
+            if (worst.profitPerHour > 0 &&
+                best.profitPerHour / worst.profitPerHour > 1.3 &&
+                worst.weeklySales > 5) { // El producto "malo" tiene ventas
+
+                const percentDiff = Math.round(((best.profitPerHour - worst.profitPerHour) / worst.profitPerHour) * 100);
+                const dailyGainEstimate = (best.profitPerHour - worst.profitPerHour) * 2; // 2h reasignadas
+
+                opportunities.push({
+                    id: `opp-${category}`,
+                    title: `⏰ Optimiza: ${category}`,
+                    productA: worst.name,
+                    productB: best.name,
+                    profitPerHourA: Math.round(worst.profitPerHour * 100) / 100,
+                    profitPerHourB: Math.round(best.profitPerHour * 100) / 100,
+                    percentDiff,
+                    dailyGainEstimate: Math.round(dailyGainEstimate * 100) / 100,
+                    recommendSwitch: true
+                });
+            }
+        }
+    });
+
+    return opportunities.slice(0, 2); // Top 2 oportunidades
+}
+

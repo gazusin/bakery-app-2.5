@@ -90,7 +90,7 @@ export default function DataManagementPage() {
       });
 
       setLastBackupInfo({
-        timestamp: backup.timestamp,
+        timestamp: backup.metadata.exportDate,
         size: JSON.stringify(backup).length
       });
     } catch (error) {

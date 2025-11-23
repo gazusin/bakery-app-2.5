@@ -101,6 +101,32 @@ export interface PurchaseOrder {
     notes?: string;
 }
 
+export interface ProductionOrderExecution {
+    productId: string;
+    productName: string;
+    quantity: number;
+    date: string;
+    executedBy: string;
+    success: boolean;
+    errors?: string[];
+    materialsDeducted?: Array<{ materialName: string; quantity: number; unit: string; }>;
+    productsAdded?: number;
+}
+
+export interface PendingProductionItem {
+    id: string;
+    productId: string;
+    productName: string;
+    plannedQuantity: number; // Total quantity of product expected (e.g., 500 loaves)
+    batchMultiplier: number; // Calculated number of batches (e.g., 2.5)
+    branchId: string; // Sede donde se ejecutará la producción
+    branchName: string; // Nombre de la sede
+    date: string; // Planned date
+    status: 'pending' | 'completed' | 'cancelled';
+    timestamp: string;
+}
+
+
 export type PaymentMethodType = 'Efectivo USD' | 'Efectivo VES' | 'Pago Móvil (VES)' | 'Transferencia (VES)' | 'Otro' | 'Crédito a Favor' | 'Nota de Crédito';
 
 export interface SaleItem {
@@ -151,7 +177,10 @@ export interface Customer {
     address?: string;
     workZone?: string;
     lastOrder?: string;
-    totalDebt?: number; // Added for compatibility with DB schema if needed, or remove if not used
+    totalDebt?: number;
+    notes?: string;
+    createdAt?: string;
+    isSystemCustomer?: boolean; // Special flag for system-managed customers
 }
 
 export type PaymentStatus = 'pendiente de verificación' | 'verificado' | 'rechazado';

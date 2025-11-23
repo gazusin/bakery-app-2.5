@@ -8,43 +8,73 @@ import { format } from 'date-fns';
 import {
     loadFromLocalStorage,
     KEYS,
-    type Sale,
-    type Product,
-    type Customer,
-    type Payment,
-    type Recipe,
-    type Supplier
+    availableBranches,
+    getActiveBranchId
 } from './data-storage';
 
 export interface BackupData {
-    version: string;
-    timestamp: string;
+    metadata: {
+        version: number;
+        source: string;
+        exportDate: string;
+        moduleName: string;
+        activeBranchIdBeforeExport?: string;
+    };
     data: {
-        sales: Sale[];
-        products: Product[];
-        customers: Customer[];
-        payments: Payment[];
-        recipes: Recipe[];
-        suppliers: Supplier[];
-        // Add more as needed
+        [key: string]: any;
     };
 }
 
 /**
  * Creates a complete backup of all application data
+ * Uses the same structure as handleExportAllData for compatibility
  */
 export async function createBackup(): Promise<BackupData> {
-    const backup: BackupData = {
-        version: '2.5',
-        timestamp: new Date().toISOString(),
-        data: {
-            sales: loadFromLocalStorage(KEYS.SALES, false),
-            products: [], // Will be loaded per branch
-            customers: loadFromLocalStorage(KEYS.CUSTOMERS, false),
-            payments: loadFromLocalStorage(KEYS.PAYMENTS, false),
-            recipes: [], // Will be loaded per branch
-            suppliers: loadFromLocalStorage(KEYS.SUPPLIERS, false),
+    const allKeys = Object.values(KEYS);
+    const exportData: { [key: string]: any } = {};
+
+    allKeys.forEach(baseKey => {
+        const isGlobalKey = [
+            KEYS.CUSTOMERS, KEYS.SALES, KEYS.PAYMENTS, KEYS.PENDING_FUND_TRANSFERS,
+            KEYS.SUPPLIERS, KEYS.RAW_MATERIAL_OPTIONS, KEYS.EXCHANGE_RATE_HISTORY,
+            KEYS.USER_PROFILE, KEYS.CUSTOM_CONVERSION_RULES, KEYS.INVENTORY_TRANSFERS,
+            KEYS.ACTIVE_BRANCH_ID, KEYS.WEEKLY_LOSS_REPORTS, KEYS.WEEKLY_PROFIT_REPORTS,
+            KEYS.EXCHANGE_RATE, KEYS.PRODUCT_LOSSES, KEYS.COMPARISON_RECIPES
+        ].includes(baseKey as any);
+
+        if (isGlobalKey) {
+            const data = localStorage.getItem(baseKey);
+            if (data !== null) {
+                try {
+                    exportData[baseKey] = JSON.parse(data);
+                } catch (e) {
+                    exportData[baseKey] = data;
+                }
+            }
+        } else {
+            availableBranches.forEach(branch => {
+                const branchSpecificKey = `${baseKey}_${branch.id}`;
+                const data = localStorage.getItem(branchSpecificKey);
+                if (data !== null) {
+                    try {
+                        exportData[branchSpecificKey] = JSON.parse(data);
+                    } catch (e) {
+                        exportData[branchSpecificKey] = data;
+                    }
+                }
+            });
         }
+    });
+
+    const backup: BackupData = {
+        metadata: {
+            version: 2,
+            source: 'PanaderiaProApp',
+            exportDate: new Date().toISOString(),
+            moduleName: 'Backup Completo',
+            activeBranchIdBeforeExport: getActiveBranchId()
+        },
+        data: exportData
     };
 
     return backup;
@@ -74,22 +104,21 @@ export function downloadBackup(backup: BackupData, filename?: string) {
 export async function restoreFromBackup(backupData: BackupData): Promise<boolean> {
     try {
         // Validate backup structure
-        if (!backupData.version || !backupData.data) {
+        if (!backupData.metadata?.version || !backupData.data) {
             throw new Error('Invalid backup format');
         }
 
-        // Restore each data type
-        if (backupData.data.sales) {
-            localStorage.setItem(KEYS.SALES, JSON.stringify(backupData.data.sales));
-        }
-        if (backupData.data.customers) {
-            localStorage.setItem(KEYS.CUSTOMERS, JSON.stringify(backupData.data.customers));
-        }
-        if (backupData.data.payments) {
-            localStorage.setItem(KEYS.PAYMENTS, JSON.stringify(backupData.data.payments));
-        }
-        if (backupData.data.suppliers) {
-            localStorage.setItem(KEYS.SUPPLIERS, JSON.stringify(backupData.data.suppliers));
+        // Restore all data from the flat structure
+        Object.keys(backupData.data).forEach(key => {
+            const value = backupData.data[key];
+            if (value !== null && value !== undefined) {
+                localStorage.setItem(key, JSON.stringify(value));
+            }
+        });
+
+        // Restore active branch if it was saved
+        if (backupData.metadata.activeBranchIdBeforeExport) {
+            localStorage.setItem(KEYS.ACTIVE_BRANCH_ID, backupData.metadata.activeBranchIdBeforeExport);
         }
 
         // Dispatch update event
@@ -144,11 +173,11 @@ export class AutoBackupService {
 
             // Save to localStorage as last backup
             localStorage.setItem('last_auto_backup', JSON.stringify({
-                timestamp: backup.timestamp,
+                timestamp: backup.metadata.exportDate,
                 size: JSON.stringify(backup).length
             }));
 
-            console.log('Auto backup completed:', backup.timestamp);
+            console.log('Auto backup completed:', backup.metadata.exportDate);
 
             // Optionally download automatically (can be configured)
             const autoDownload = localStorage.getItem('auto_download_backup');

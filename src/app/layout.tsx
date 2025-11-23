@@ -155,12 +155,16 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Run DB Migration
+  // Run DB Migration and Initialize System Customers
   useEffect(() => {
     const initDB = async () => {
       await migrateDataToIndexedDB();
       const { initializeDataFromDB } = await import('@/lib/data-storage');
       await initializeDataFromDB();
+
+      // Initialize system customers for loss tracking
+      const { initializeSystemCustomers } = await import('@/lib/system-customers');
+      initializeSystemCustomers();
     };
     initDB();
   }, []);
