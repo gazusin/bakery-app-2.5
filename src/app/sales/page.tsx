@@ -170,7 +170,11 @@ export default function SalesPage() {
     });
     setAllSales(currentSales);
     setFilteredSales(currentSales);
-    setAvailableCustomers([...initialCustomersDataGlobal].sort((a, b) => a.name.localeCompare(b.name)));
+
+    // Reload customers from localStorage to include system customers
+    const allCustomers = loadFromLocalStorage<Customer[]>(KEYS.CUSTOMERS, false) || [];
+    setAvailableCustomers(allCustomers.sort((a, b) => a.name.localeCompare(b.name)));
+
     setExchangeRate(loadExchangeRate());
 
     setIsLoading(false);
