@@ -22,34 +22,55 @@ export type SystemCustomerKey = keyof typeof SYSTEM_CUSTOMERS;
  * Creates them if they don't exist
  */
 export function initializeSystemCustomers(): void {
-    const customers = loadFromLocalStorage<Customer[]>(KEYS.CUSTOMERS) || [];
-    let needsSave = false;
+    // Ensure we're in the browser
+    if (typeof window === 'undefined') {
+        console.log('Skipping system customers init - not in browser');
+        return;
+    }
 
-    Object.values(SYSTEM_CUSTOMERS).forEach(customerName => {
-        const exists = customers.some(c => c.name === customerName);
+    try {
+        const customers = loadFromLocalStorage<Customer[]>(KEYS.CUSTOMERS, false) || [];
+        let needsSave = false;
 
-        if (!exists) {
-            const newCustomer: Customer = {
-                id: `SYSCUST_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                name: customerName,
-                contact: '', // System customers don't have contact info
-                phone: '',
-                email: '',
-                address: '',
-                notes: 'Cliente del sistema - No eliminar',
-                isSystemCustomer: true,
-                createdAt: new Date().toISOString()
-            };
+        console.log(`Found ${customers.length} existing customers`);
 
-            customers.push(newCustomer);
-            needsSave = true;
-            console.log(`Created system customer: ${customerName}`);
+        Object.values(SYSTEM_CUSTOMERS).forEach(customerName => {
+            const exists = customers.some(c => c.name === customerName);
+
+            if (!exists) {
+                const newCustomer: Customer = {
+                    id: `SYSCUST_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    name: customerName,
+                    contact: '', // System customers don't have contact info
+                    phone: '',
+                    email: '',
+                    address: '',
+                    notes: 'Cliente del sistema - No eliminar',
+                    isSystemCustomer: true,
+                    createdAt: new Date().toISOString()
+                };
+
+                customers.push(newCustomer);
+                needsSave = true;
+                console.log(`✅ Created system customer: ${customerName}`);
+            } else {
+                console.log(`ℹ️ System customer already exists: ${customerName}`);
+            }
+        });
+
+        if (needsSave) {
+            localStorage.setItem(KEYS.CUSTOMERS, JSON.stringify(customers));
+            console.log('✅ System customers initialized and saved');
+
+            // Dispatch event to notify other components with proper detail
+            window.dispatchEvent(new CustomEvent('data-updated', {
+                detail: { key: KEYS.CUSTOMERS }
+            }));
+        } else {
+            console.log('ℹ️ All system customers already exist');
         }
-    });
-
-    if (needsSave) {
-        localStorage.setItem(KEYS.CUSTOMERS, JSON.stringify(customers));
-        console.log('System customers initialized');
+    } catch (error) {
+        console.error('❌ Error initializing system customers:', error);
     }
 }
 

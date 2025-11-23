@@ -86,6 +86,7 @@ import { FormattedNumber } from '@/components/ui/formatted-number';
 import { SaleDialog } from '@/components/sales/sale-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { processDispatch, type ProcessDispatchInput, type ProcessDispatchOutput } from '@/ai/flows/process-dispatch-flow';
+import { registerLossesFromSale } from '@/lib/loss-tracking-service';
 
 
 interface jsPDFWithAutoTable extends jsPDF {
@@ -464,6 +465,9 @@ export default function SalesPage() {
     let currentSales = loadFromLocalStorage<Sale[]>(KEYS.SALES);
     currentSales.push(newSaleEntry);
     saveSalesData(currentSales.sort((a, b) => compareDesc(parseISO(a.timestamp || a.date), parseISO(b.timestamp || b.date))));
+
+    // Automatically register losses from this sale
+    registerLossesFromSale(newSaleEntry);
 
     const customer = initialCustomersDataGlobal.find(c => c.id === newSelectedCustomerId);
     if (customer) {

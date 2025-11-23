@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Package, Search, Loader2, Trash2, PlusCircle } from 'lucide-react';
+import { Package, Search, Loader2, Trash2, PlusCircle, Trash } from 'lucide-react';
 import Image from 'next/image';
 import { useToast } from "@/hooks/use-toast";
 import { StockAlertsAI } from '@/components/ai/stock-alerts-ai';
@@ -24,7 +24,10 @@ import {
   availableBranches,
   loadFromLocalStorageForBranch
 } from '@/lib/data-storage';
-import type { Product, Recipe } from '@/lib/types/db-types';
+import type { Product, Recipe, Sale, SaleItem, SaleBranchDetail } from '@/lib/types/db-types';
+import { SYSTEM_CUSTOMERS } from '@/lib/system-customers';
+import { saveSalesData, salesData as initialSalesDataGlobal, customersData as initialCustomersDataGlobal } from '@/lib/data-storage';
+import { compareDesc } from 'date-fns';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { FormattedNumber } from '@/components/ui/formatted-number';
@@ -46,6 +49,7 @@ export default function StockProduccionPage() {
   const [adjustmentType, setAdjustmentType] = useState<'add' | 'subtract'>('add');
   const [productToAdjust, setProductToAdjust] = useState<string>('');
   const [adjustmentQuantity, setAdjustmentQuantity] = useState('');
+  const [isWasteDialogOpen, setIsWasteDialogOpen] = useState(false);
 
   const loadPageData = useCallback(() => {
     setIsLoading(true);
@@ -142,6 +146,126 @@ export default function StockProduccionPage() {
     setIsSubmitting(false);
   };
 
+  const handleRegisterWaste = () => {
+    setIsSubmitting(true);
+
+    // Find all "No Despachable" products with stock > 0
+    const wasteProducts = productsData.filter(p =>
+      p.name.toLowerCase().startsWith('no despachable') && p.stock > 0
+    );
+
+    if (wasteProducts.length === 0) {
+      toast({
+        title: "No hay desperdicios",
+        description: "No se encontraron productos 'No Despachable' con stock disponible.",
+        variant: "default"
+      });
+      setIsSubmitting(false);
+      setIsWasteDialogOpen(false);
+      return;
+    }
+
+    // Find "Desperdicio" customer
+    const desperdicioCustomer = initialCustomersDataGlobal.find(
+      c => c.name === SYSTEM_CUSTOMERS.DESPERDICIO
+    );
+
+    if (!desperdicioCustomer) {
+      toast({
+        title: "Error",
+        description: "No se encontró el cliente 'Desperdicio'. Por favor, recarga la aplicación.",
+        variant: "destructive"
+      });
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Group waste products by branch
+    const itemsPerBranch: SaleBranchDetail[] = [];
+    const branchGroups: { [branchId: string]: { items: SaleItem[], branchName: string } } = {};
+
+    wasteProducts.forEach(product => {
+      if (!product.sourceBranchId) return;
+
+      if (!branchGroups[product.sourceBranchId]) {
+        branchGroups[product.sourceBranchId] = {
+          items: [],
+          branchName: product.sourceBranchName || 'Desconocida'
+        };
+      }
+
+      const saleItem: SaleItem = {
+        productId: product.id,
+        productName: product.name,
+        quantity: product.stock,
+        unitPrice: 0, // Precio 0 para desperdicios
+        subtotal: 0,
+        sourceBranchId: product.sourceBranchId,
+        sourceBranchName: product.sourceBranchName || 'Desconocida'
+      };
+
+      branchGroups[product.sourceBranchId].items.push(saleItem);
+    });
+
+    // Convert to itemsPerBranch format
+    Object.entries(branchGroups).forEach(([branchId, data]) => {
+      itemsPerBranch.push({
+        branchId,
+        branchName: data.branchName,
+        items: data.items,
+        totalAmount: 0,
+        amountPaidUSD: 0
+      });
+    });
+
+    // Create sale to "Desperdicio" customer
+    const saleId = `WASTE-${Date.now().toString().slice(-4)}${Math.floor(Math.random() * 100)}`;
+    const wasteSale: Sale = {
+      id: saleId,
+      date: format(new Date(), 'yyyy-MM-dd'),
+      itemsPerBranch,
+      customerId: desperdicioCustomer.id,
+      customerName: SYSTEM_CUSTOMERS.DESPERDICIO,
+      totalAmount: 0,
+      paymentMethod: 'Pagado',
+      amountPaidUSD: 0,
+      timestamp: new Date().toISOString(),
+      notes: `Desperdicio automático - ${wasteProducts.length} producto(s) eliminado(s)`
+    };
+
+    // Update stock: remove waste products
+    wasteProducts.forEach(product => {
+      if (!product.sourceBranchId) return;
+
+      let branchProducts = loadProductsForBranch(product.sourceBranchId);
+      const productIndex = branchProducts.findIndex(p => p.id === product.id);
+
+      if (productIndex !== -1) {
+        branchProducts[productIndex].stock = 0; // Set to 0
+        branchProducts[productIndex].lastUpdated = format(new Date(), 'yyyy-MM-dd');
+        saveProductsDataForBranch(product.sourceBranchId, branchProducts);
+      }
+    });
+
+    // Save sale (this will also trigger automatic loss registration)
+    let currentSales = [...initialSalesDataGlobal];
+    currentSales.push(wasteSale);
+    saveSalesData(currentSales.sort((a, b) => compareDesc(
+      parseISO(a.timestamp || a.date),
+      parseISO(b.timestamp || b.date)
+    )));
+
+    toast({
+      title: "Desperdicios Registrados",
+      description: `${wasteProducts.length} producto(s) 'No Despachable' fueron eliminados del stock y registrados como pérdida.`,
+      duration: 5000
+    });
+
+    setIsWasteDialogOpen(false);
+    setIsSubmitting(false);
+    loadPageData(); // Reload to show updated stock
+  };
+
   const handleSaveAdjustment = () => {
     if (!productToAdjust || !adjustmentQuantity) {
       toast({ title: "Error", description: "Producto y cantidad son obligatorios.", variant: "destructive" });
@@ -211,10 +335,20 @@ export default function StockProduccionPage() {
         description="Rastrea los niveles de stock de tus productos terminados de todas las sedes. El stock se actualiza desde el módulo de Producción y se deduce en el módulo de Ventas."
         icon={Package}
         actions={
-          <Button onClick={() => { resetAdjustForm(); setIsAdjustDialogOpen(true); }} disabled={isSubmitting}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            Ajustar Stock
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setIsWasteDialogOpen(true)}
+              disabled={isSubmitting}
+              variant="destructive"
+            >
+              <Trash className="mr-2 h-4 w-4" />
+              Registrar Desperdicios
+            </Button>
+            <Button onClick={() => { resetAdjustForm(); setIsAdjustDialogOpen(true); }} disabled={isSubmitting}>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Ajustar Stock
+            </Button>
+          </div>
         }
       />
 
@@ -379,6 +513,39 @@ export default function StockProduccionPage() {
             <Button variant="destructive" onClick={handleConfirmDelete} disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               {isSubmitting ? "Eliminando..." : "Eliminar Producto"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isWasteDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsWasteDialogOpen(isOpen); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Registrar Desperdicios del Día</DialogTitle>
+            <DialogDescription>
+              Esta acción eliminará todos los productos "No Despachable" del stock y los registrará automáticamente como pérdidas.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Se encontraron {productsData.filter(p => p.name.toLowerCase().startsWith('no despachable') && p.stock > 0).length} producto(s) "No Despachable" en stock.
+            </p>
+            <p className="text-sm font-semibold mt-2">
+              ¿Deseas continuar?
+            </p>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline" disabled={isSubmitting}>Cancelar</Button>
+            </DialogClose>
+            <Button
+              type="button"
+              onClick={handleRegisterWaste}
+              disabled={isSubmitting}
+              variant="destructive"
+            >
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash className="mr-2 h-4 w-4" />}
+              {isSubmitting ? "Procesando..." : "Registrar Desperdicios"}
             </Button>
           </DialogFooter>
         </DialogContent>
